@@ -1,0 +1,31 @@
+import { Inngest, eventType } from "inngest";
+import { z } from "zod";
+
+/**
+ * Inngest client + typed events — the durable execution layer (D2).
+ *
+ * Events carry ONLY stable internal ids. Handlers load current state from
+ * Postgres and decrypt credentials inside the connector call. Postgres remains
+ * the source of truth; Inngest holds execution state and retries.
+ */
+export const inngest = new Inngest({ id: "subscription-ops" });
+
+/** A webhook delivery was persisted as an IntegrationEvent and needs processing. */
+export const integrationEventReceived = eventType("integration/event.received", {
+  schema: z.object({ integrationEventId: z.string(), organizationId: z.string(), integrationId: z.string() }),
+});
+
+/** Attach (or dry-run) a planned AutomationAction. */
+export const automationActionExecute = eventType("automation/action.execute", {
+  schema: z.object({ automationActionId: z.string(), organizationId: z.string() }),
+});
+
+/** Re-check a subscription's live actions after a lifecycle change. */
+export const subscriptionReconcile = eventType("subscription/reconcile", {
+  schema: z.object({ subscriptionId: z.string(), organizationId: z.string(), reason: z.string() }),
+});
+
+/** Read-only import for an integration. */
+export const integrationSyncRequested = eventType("integration/sync.requested", {
+  schema: z.object({ integrationId: z.string(), organizationId: z.string(), mode: z.enum(["initial", "incremental"]) }),
+});

@@ -976,3 +976,16 @@ Reply with changes, or "go" to start Phase 1 exactly as written.
 - Prisma pinned to **6.x** for the foundation (stable, Better Auth adapter-proven); migration to 7 is a later, documented step.
 - `Organization.markerLeadHours`, `Subscription.mappingStatus`, `Subscription.nextChargeDate` (date string) + `nextChargeAt`, `AutomationAction.{targetChargeDate,targetChargeAt,executeAfter,verifiedAt,fulfilledByCycleId}`, `IntegrationEvent.dispatchedAt`, `Exception.resolutionNote` added. `JourneyEndReason.PRODUCT_SWAP` → `PROGRAM_CHANGE` (+ `UNMAPPED`).
 - Known risks accepted: a ≥72h outage would miss attachments (made loud by T-24h verification + `MARKER_MISSED`); Recharge "upcoming order" emails (~3 days out) may land before or after T-72h — `markerLeadHours` is the dial; Inngest free-tier concurrency is modest.
+
+### Phase 1 — status (21 Aug 2026): **done**
+- Repo `Narsyl/Reloop`, package `subscription-ops`; `.gitattributes`; `.env.example`.
+- Prisma 6 schema + migrations `init`, `account_issuer` applied on Neon (Better Auth 1.7 requires `Account.issuer = "local:credential"`).
+- `lib/crypto/credentials.ts` (AES-256-GCM, AAD-bound, key ring rotation) — 8 unit tests.
+- Better Auth email+password; active organisation on `Session.activeOrganizationId`; `requireUser/requireOrg/requireRole`; onboarding creates org + OWNER.
+- `dbFor(ctx)` org-scoped Prisma extension; ESLint guard on raw-client imports; cross-tenant test suite (16 tenant models × read/update/delete/count + scoped create) — 50 assertions.
+- Design tokens (cool-biased neutrals, single slate-indigo accent, semantic status tones used only via `StatusBadge`), shadcn/Base UI primitives, composites (PageHeader, Metric, EmptyState, StatusBadge, DataTable-style tables, FilterBar (URL-synced), Pagination, Timeline/ActivityItem, DetailRow, ConfirmationDialog, RuleSummary, ExceptionCard, RuleRow).
+- Shell: sidebar per §16, org switcher, user menu; pages: Overview, Subscriptions (server search/filter/paging), Subscription detail (journey timeline, actions, activity, external refs), Upcoming (date-grouped forecast), Rules (+ activate/disable with confirmation, detail, builder placeholder), Products (programs / products / markers tabs, unmapped banner), Activity, Exceptions (inbox with resolve/ignore), Settings (general form, team, integrations with capability panel); loading/error/not-found states.
+- Inngest client + typed events + `/api/inngest` with a heartbeat function (dev mode verified).
+- Seed: "Ancient Extracts Demo" (4 programs, 3 markers, 3 rules, 20 customers, 30 subscriptions incl. swapped/paused/cancelled/unmapped, planned/attached/fulfilled/failed actions, 3 exceptions, activity) + "Northwind Botanicals".
+- Verified: typecheck, lint, 58 tests, production build, signed-in smoke test of all routes.
+- Deferred to Phase 2: delete `lib/recharge.ts` + `app/api/recharge/*` once the connector exists; team invitations; rule builder (Phase 4).

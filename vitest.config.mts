@@ -1,12 +1,14 @@
 import { defineConfig } from "vitest/config";
 import path from "node:path";
 
+const root = import.meta.dirname;
+
 export default defineConfig({
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "."),
+      "@": path.resolve(root, "."),
       // `server-only` throws outside an RSC environment; stub it for node tests.
-      "server-only": path.resolve(__dirname, "tests/stubs/server-only.ts"),
+      "server-only": path.resolve(root, "tests/stubs/server-only.ts"),
     },
   },
   test: {

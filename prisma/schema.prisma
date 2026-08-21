@@ -49,6 +49,7 @@ model Account {
   userId                String
   accountId             String
   providerId            String
+  issuer                String // Better Auth ≥1.7: "local:credential" for password accounts
   accessToken           String?
   refreshToken          String?
   idToken               String?
