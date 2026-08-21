@@ -18,8 +18,8 @@ let integrationId = "";
 let programId = "";
 
 const products: ConnectorProduct[] = [
-  { externalProductId: "8001", providerProductId: "1", title: "Morning Magic", active: true, providerData: null, variants: [{ externalVariantId: "9001", title: "30", sku: "MM-30", price: "34.00" }, { externalVariantId: "9002", title: "60", sku: "MM-60", price: "62.00" }] },
-  { externalProductId: "8002", providerProductId: "2", title: "Ube", active: true, providerData: null, variants: [{ externalVariantId: "9003", title: "200g", sku: "UBE", price: "24.00" }] },
+  { externalProductId: "8001", providerProductId: "1", title: "Morning Magic", active: true, providerData: null, skippedVariants: 0, variants: [{ externalVariantId: "9001", title: "30", sku: "MM-30", price: "34.00" }, { externalVariantId: "9002", title: "60", sku: "MM-60", price: "62.00" }] },
+  { externalProductId: "8002", providerProductId: "2", title: "Ube", active: true, providerData: null, skippedVariants: 0, variants: [{ externalVariantId: "9003", title: "200g", sku: "UBE", price: "24.00" }] },
 ];
 const customers: ConnectorCustomer[] = [
   { externalCustomerId: "55", email: "sarah@example.com", firstName: "Sarah", lastName: "Johnson", externalCreatedAt: new Date("2026-01-01"), externalUpdatedAt: null },

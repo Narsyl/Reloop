@@ -14,6 +14,7 @@ import {
   type SyncProgress,
 } from "@/lib/domain/sync/progress";
 import {
+  countOnetimesPage,
   importCustomersPage,
   importOrdersPage,
   importProductsPage,
@@ -131,6 +132,7 @@ export const runIntegrationSync = inngest.createFunction(
       }
       await stageLoop("ORDERS", "orders", async (cursor) => importOrdersPage(ctx, await connector(), integrationId, cursor, updatedSince));
       await step.run("orders:relink", () => wrap("orders:relink", () => relinkOrphanOrders(ctx, integrationId)));
+      await stageLoop("ONETIMES", "onetimes", async (cursor) => countOnetimesPage(ctx, await connector(), integrationId, cursor, updatedSince));
     }
 
     // ── JOURNEYS: recalculate in batches ──

@@ -39,6 +39,8 @@ export type ConnectorProduct = {
   title: string;
   active: boolean;
   variants: ConnectorVariant[];
+  /** variants the provider returned without a commerce id (skipped, counted) */
+  skippedVariants: number;
   providerData: Record<string, unknown> | null;
 };
 

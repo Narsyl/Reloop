@@ -13,6 +13,7 @@ export type SyncCounts = {
   products: number;
   variants: number;
   productsSkipped: number;
+  variantsSkipped: number;
   customers: number;
   subscriptions: number;
   subscriptionsActive: number;
@@ -31,6 +32,7 @@ export const EMPTY_COUNTS: SyncCounts = {
   products: 0,
   variants: 0,
   productsSkipped: 0,
+  variantsSkipped: 0,
   customers: 0,
   subscriptions: 0,
   subscriptionsActive: 0,

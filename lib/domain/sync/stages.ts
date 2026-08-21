@@ -23,10 +23,10 @@ export async function importProductsPage(ctx: Ctx, connector: RechargeConnector,
   const iter = connector.listProducts({ startCursor: cursor, updatedSince: updatedSince ?? undefined });
   const page = await iter.next();
   if (page.done) return { nextCursor: null, items: 0, delta: {} };
-  const { items, skipped, nextCursor } = page.value;
+  const { items, skipped, skippedVariants, nextCursor } = page.value;
   let variants = 0;
   for (const p of items) variants += await upsertProduct(ctx, integrationId, p);
-  return { nextCursor, items: items.length, delta: { products: items.length, variants, productsSkipped: skipped } };
+  return { nextCursor, items: items.length, delta: { products: items.length, variants, productsSkipped: skipped, variantsSkipped: skippedVariants } };
 }
 
 async function upsertProduct(ctx: Ctx, integrationId: string, p: ConnectorProduct): Promise<number> {
@@ -220,6 +220,20 @@ export function collectSubscriptionLines(orders: ConnectorOrder[]): Subscription
     }
   }
   return out;
+}
+
+// ── one-times (count only) ─────────────────────────────────────────────────
+
+/**
+ * Phase 2 reads one-times purely to report how many exist (pre-existing manual
+ * fulfilment markers, later duplicate reconciliation). Nothing is stored yet.
+ */
+export async function countOnetimesPage(_ctx: Ctx, connector: RechargeConnector, _integrationId: string, cursor: string | null, updatedSince?: Date | null): Promise<PageResult> {
+  const iter = connector.listOnetimes({ startCursor: cursor, updatedSince: updatedSince ?? undefined });
+  const page = await iter.next();
+  if (page.done) return { nextCursor: null, items: 0, delta: {} };
+  const { items, nextCursor } = page.value;
+  return { nextCursor, items: items.length, delta: { onetimes: items.length } };
 }
 
 // ── journeys ───────────────────────────────────────────────────────────────

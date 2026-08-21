@@ -24,6 +24,7 @@ const STAGES: { key: SyncStage; label: string; countKey?: string }[] = [
   { key: "CUSTOMERS", label: "Importing customers", countKey: "customers" },
   { key: "SUBSCRIPTIONS", label: "Importing subscriptions", countKey: "subscriptions" },
   { key: "ORDERS", label: "Importing historical orders", countKey: "orders" },
+  { key: "ONETIMES", label: "Counting one-times", countKey: "onetimes" },
   { key: "JOURNEYS", label: "Calculating journeys", countKey: "journeysProcessed" },
   { key: "COMPLETE", label: "Complete" },
 ];

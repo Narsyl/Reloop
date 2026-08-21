@@ -1,5 +1,10 @@
 /**
  * Recharge → internal DTOs. The only file that knows Recharge field names.
+ *
+ * External ids arrive already normalised to `string | null` by the schemas
+ * (see ids.ts). This file decides which are REQUIRED for domain correctness and
+ * throws a typed ExternalIdError — naming the resource, field and record id —
+ * when one is missing. Nothing here ever emits "", "null" or "undefined".
  */
 import type {
   ConnectorCustomer,
@@ -13,6 +18,7 @@ import type {
   ConnectorSubscriptionStatus,
   ConnectorVariant,
 } from "@/lib/integrations/types";
+import { optionalExternalId, requiredExternalId } from "./ids";
 import type { RcCustomer, RcOnetime, RcOrder, RcProduct, RcStore, RcSubscription } from "./schemas";
 
 export function parseDate(value: string | null | undefined): Date | null {
@@ -62,14 +68,26 @@ export function mapCustomer(c: RcCustomer): ConnectorCustomer {
   };
 }
 
+/**
+ * Products: a product without a commerce id cannot be joined to any subscription,
+ * so it is skipped (returns null) and counted by the caller — catalogue only,
+ * not required for cycle correctness. Variants without an id are likewise
+ * skipped and counted in `skippedVariants`. Malformed ids never reach here
+ * (schema rejects them).
+ */
 export function mapProduct(p: RcProduct): ConnectorProduct | null {
-  const externalProductId = p.external_product_id;
-  if (!externalProductId) return null; // cannot join to subscriptions without the commerce id
+  const externalProductId = optionalExternalId(p.external_product_id, { resource: "product", field: "external_product_id", recordId: p.id });
+  if (!externalProductId) return null;
   const variants: ConnectorVariant[] = [];
+  let skippedVariants = 0;
   for (const v of p.variants ?? []) {
-    if (!v.external_variant_id) continue;
+    const externalVariantId = optionalExternalId(v.external_variant_id, { resource: "product.variant", field: "external_variant_id", recordId: p.id });
+    if (!externalVariantId) {
+      skippedVariants++;
+      continue;
+    }
     variants.push({
-      externalVariantId: v.external_variant_id,
+      externalVariantId,
       title: v.title ?? "Default",
       sku: v.sku ?? null,
       price: decimalString(v.prices?.unit_price ?? v.price ?? null),
@@ -81,6 +99,7 @@ export function mapProduct(p: RcProduct): ConnectorProduct | null {
     title: p.title ?? `Product ${externalProductId}`,
     active: !p.deleted_at,
     variants,
+    skippedVariants,
     providerData: { providerProductId: p.id ?? null, handle: p.handle ?? null, publishedAt: p.published_at ?? null },
   };
 }
@@ -93,15 +112,18 @@ function mapSubscriptionStatus(raw: string): ConnectorSubscriptionStatus {
   return "unknown";
 }
 
+/** Subscriptions: product AND variant ids are required — without them the subscription cannot be placed in a program. */
 export function mapSubscription(s: RcSubscription): ConnectorSubscription {
+  const externalProductId = requiredExternalId(s.external_product_id, { resource: "subscription", field: "external_product_id", recordId: s.id });
+  const externalVariantId = requiredExternalId(s.external_variant_id, { resource: "subscription", field: "external_variant_id", recordId: s.id });
   return {
     externalSubscriptionId: s.id,
     externalCustomerId: s.customer_id,
     externalAddressId: s.address_id,
     status: mapSubscriptionStatus(s.status),
     providerStatus: s.status,
-    externalProductId: s.external_product_id ?? "",
-    externalVariantId: s.external_variant_id ?? "",
+    externalProductId,
+    externalVariantId,
     productTitle: s.product_title ?? "Unknown product",
     variantTitle: s.variant_title ?? null,
     sku: s.sku ?? null,
@@ -128,14 +150,24 @@ function mapOrderKind(type: string | null | undefined): ConnectorOrderKind {
   return (type ?? "").toLowerCase() === "checkout" ? "CHECKOUT" : "RECURRING";
 }
 
+/**
+ * Orders: for SUBSCRIPTION line items the product/variant ids are required — a
+ * successful order line is a delivery cycle and must be attributable to a
+ * program. For one-time/unknown lines they are optional.
+ */
 export function mapOrder(o: RcOrder): ConnectorOrder {
-  const lineItems: ConnectorOrderLine[] = (o.line_items ?? []).map((li) => {
+  const lineItems: ConnectorOrderLine[] = (o.line_items ?? []).map((li, index) => {
     const type = (li.purchase_item_type ?? "").toLowerCase();
+    const purchaseItemId = li.purchase_item_id ?? li.subscription_id ?? null;
+    const purchaseItemType: ConnectorOrderLine["purchaseItemType"] = type === "subscription" || type === "onetime" ? type : li.subscription_id ? "subscription" : "unknown";
+    const ctx = (field: string) => ({ resource: "order.line_item", field, recordId: `${o.id}#${index}${purchaseItemId ? ` (purchase_item ${purchaseItemId})` : ""}` });
+    const externalProductId = purchaseItemType === "subscription" ? requiredExternalId(li.external_product_id, ctx("external_product_id")) : optionalExternalId(li.external_product_id, ctx("external_product_id"));
+    const externalVariantId = purchaseItemType === "subscription" ? requiredExternalId(li.external_variant_id, ctx("external_variant_id")) : optionalExternalId(li.external_variant_id, ctx("external_variant_id"));
     return {
-      purchaseItemId: li.purchase_item_id ?? li.subscription_id ?? null,
-      purchaseItemType: type === "subscription" || type === "onetime" ? type : li.subscription_id ? "subscription" : "unknown",
-      externalProductId: li.external_product_id ?? null,
-      externalVariantId: li.external_variant_id ?? null,
+      purchaseItemId,
+      purchaseItemType,
+      externalProductId,
+      externalVariantId,
       quantity: num(li.quantity, 1),
       title: li.title ?? null,
       sku: li.sku ?? null,
@@ -155,13 +187,14 @@ export function mapOrder(o: RcOrder): ConnectorOrder {
   };
 }
 
+/** One-times: ids are optional in Phase 2 (read for discovery only). */
 export function mapOnetime(t: RcOnetime): ConnectorOnetime {
   return {
     externalOnetimeId: t.id,
     externalAddressId: t.address_id,
     externalCustomerId: t.customer_id ?? null,
-    externalProductId: t.external_product_id ?? null,
-    externalVariantId: t.external_variant_id ?? null,
+    externalProductId: optionalExternalId(t.external_product_id, { resource: "onetime", field: "external_product_id", recordId: t.id }),
+    externalVariantId: optionalExternalId(t.external_variant_id, { resource: "onetime", field: "external_variant_id", recordId: t.id }),
     nextChargeDate: dateOnly(t.next_charge_scheduled_at),
     productTitle: t.product_title ?? null,
     sku: t.sku ?? null,
