@@ -1,12 +1,14 @@
 import { cron } from "inngest";
 import { inngest } from "@/lib/jobs/inngest";
+import { runIntegrationSync } from "./sync";
+import { recalculateJourneys } from "./recalc";
 
 /**
  * Function registry served by /api/inngest.
  *
- * Phase 1 ships only a heartbeat so the integration is verified end-to-end.
- * Phase 2+ add: processIntegrationEvent, executeAutomationAction, dispatchDueActions
- * (cron), verifyNearTermActions (cron), reconcileSubscription, runIntegrationSync,
+ * Phase 2: integration sync (read-only import) + journey recalculation.
+ * Later phases add: processIntegrationEvent, executeAutomationAction,
+ * dispatchDueActions (cron), verifyNearTermActions (cron), reconcileSubscription,
  * dailyIntegrationReconcile (cron), resendUndispatchedEvents (cron).
  */
 export const heartbeat = inngest.createFunction(
@@ -17,4 +19,4 @@ export const heartbeat = inngest.createFunction(
   },
 );
 
-export const functions = [heartbeat];
+export const functions = [heartbeat, runIntegrationSync, recalculateJourneys];

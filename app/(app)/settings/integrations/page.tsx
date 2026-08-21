@@ -1,137 +1,108 @@
+import Link from "next/link";
 import { Plug } from "lucide-react";
 import { hasRole, requireOrg } from "@/lib/auth/tenancy";
 import { listIntegrations } from "@/lib/domain/queries/settings";
+import { getLatestSyncs } from "@/lib/domain/queries/integrations";
 import { automationMode, integrationStatus } from "@/lib/status";
 import { formatDateTime, formatRelative, pluralize } from "@/lib/format";
 import { SectionHeader } from "@/components/layout/page-header";
 import { StatusBadge } from "@/components/status/status-badge";
-import { Button } from "@/components/ui/button";
+import { ConnectRechargeDialog } from "@/components/domain/connect-recharge-dialog";
+import { IntegrationActions } from "@/components/domain/integration-actions";
+import { SyncStatus, type SyncStatusData } from "@/components/domain/sync-status";
+import type { CapabilityMap } from "@/lib/integrations/types";
 
 export const metadata = { title: "Integrations" };
 
-type Capabilities = Record<string, "available" | "read_write" | "read" | "unavailable" | string>;
-
-const REQUIRED: { key: string; label: string }[] = [
-  { key: "customers", label: "Customers" },
-  { key: "products", label: "Products" },
-  { key: "orders", label: "Orders" },
-  { key: "subscriptions", label: "Subscriptions" },
-  { key: "onetimes", label: "One-times" },
-  { key: "webhooks", label: "Webhooks" },
-];
-const OPTIONAL: { key: string; label: string }[] = [
-  { key: "charges", label: "Charges (verification)" },
-  { key: "credits", label: "Credits" },
-  { key: "events", label: "Events API" },
-  { key: "customer_sessions", label: "Storefront sessions" },
-];
-
-function capLabel(v: string | undefined) {
-  if (!v || v === "unavailable") return "unavailable on current plan";
-  if (v === "read_write") return "read / write";
-  return v.replace(/_/g, " ");
-}
+const REQUIRED: (keyof CapabilityMap)[] = ["store", "customers", "products", "orders", "subscriptions", "onetimes", "webhooks"];
 
 export default async function IntegrationsPage() {
   const ctx = await requireOrg();
   const integrations = await listIntegrations(ctx);
+  const latest = await getLatestSyncs(ctx, integrations.map((i) => i.id));
   const canManage = hasRole(ctx, "ADMIN");
-  const recharge = integrations.find((i) => i.provider === "RECHARGE");
+  const canOperate = hasRole(ctx, "OPERATOR");
+  const live = integrations.filter((i) => i.status !== "DISCONNECTED");
+  const disconnected = integrations.filter((i) => i.status === "DISCONNECTED");
 
   return (
     <div className="space-y-6">
-      <SectionHeader title="Subscription platforms" description="Connect the platform that bills your subscribers. The platform is read read-only until you activate a rule." />
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <SectionHeader title="Subscription platforms" description="Connect the platform that bills your subscribers. Imports are read-only; nothing is written to the platform until a rule is activated." />
+        <ConnectRechargeDialog disabled={!canManage} />
+      </div>
 
-      <div className="rounded-xl border border-border bg-card">
-        <div className="flex flex-wrap items-start justify-between gap-4 p-5">
-          <div className="flex items-start gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-              <Plug className="size-5" />
-            </div>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold">Recharge</h3>
-                <StatusBadge status={recharge ? integrationStatus[recharge.status] : integrationStatus.DISCONNECTED} />
-                {recharge && <StatusBadge status={automationMode[recharge.automationMode]} />}
-              </div>
-              {recharge ? (
-                <div className="text-xs text-muted-foreground">
-                  {recharge.displayName} · store {recharge.externalStoreId} ·{" "}
-                  {recharge.lastSuccessfulSyncAt ? `last synced ${formatRelative(recharge.lastSuccessfulSyncAt)}` : "not synced yet"} ·{" "}
-                  {pluralize(recharge._count.subscriptions, "subscription")}, {pluralize(recharge._count.products, "product")}
-                  {recharge.lastErrorMessage && <span className="block text-status-danger">Last error: {recharge.lastErrorMessage} ({formatDateTime(recharge.lastErrorAt, ctx.timezone)})</span>}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Uses the Recharge Admin API with a least-privilege token: Customers, Products, Orders and Store information (view) plus Subscriptions (view + manage). No premium Recharge features are required.
-                </p>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {recharge ? (
-              <>
-                <Button variant="outline" size="sm" disabled title="Available in Phase 2">Sync</Button>
-                <Button variant="outline" size="sm" disabled title="Available in Phase 2">Settings</Button>
-                <Button variant="destructive" size="sm" disabled title="Available in Phase 2">Disconnect</Button>
-              </>
-            ) : (
-              <Button disabled={!canManage} title="The connection flow arrives in Phase 2">Connect Recharge</Button>
-            )}
+      {live.length === 0 && (
+        <div className="flex items-start gap-4 rounded-xl border border-dashed border-border p-6">
+          <div className="flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground"><Plug className="size-5" /></div>
+          <div className="space-y-1 text-sm">
+            <div className="font-semibold">No platform connected yet</div>
+            <p className="text-muted-foreground">
+              Connect Recharge with a least-privilege API token: Customers, Products, Orders and Store information (view) plus Subscriptions (view + manage). Premium Recharge features (Events API, Credits, Storefront sessions) are not required.
+            </p>
           </div>
         </div>
+      )}
 
-        {recharge && (
-          <div className="grid gap-6 border-t border-border p-5 sm:grid-cols-2">
-            <div className="space-y-2">
-              <h4 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Required capabilities</h4>
-              <ul className="space-y-1 text-sm">
-                {REQUIRED.map((c) => {
-                  const v = (recharge.capabilitiesJson as Capabilities | null)?.[c.key];
-                  const ok = v && v !== "unavailable";
-                  return (
-                    <li key={c.key} className="flex items-center justify-between gap-3">
-                      <span className="flex items-center gap-2">
-                        <span className={`size-2 rounded-full ${ok ? "bg-status-success" : "bg-status-danger"}`} />
-                        {c.label}
-                      </span>
-                      <span className="text-xs text-muted-foreground">{capLabel(v)}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-              <p className="pt-1 text-xs text-muted-foreground">
-                {REQUIRED.every((c) => {
-                  const v = (recharge.capabilitiesJson as Capabilities | null)?.[c.key];
-                  return v && v !== "unavailable";
-                })
-                  ? "All features required by Subscription Ops are available."
-                  : "Some required capabilities are missing — rules cannot be activated until they are granted."}
-                {recharge.capabilitiesCheckedAt && ` Checked ${formatRelative(recharge.capabilitiesCheckedAt)}.`}
-              </p>
+      {live.map((i) => {
+        const caps = (i.capabilitiesJson as CapabilityMap | null) ?? null;
+        const requiredOk = caps ? REQUIRED.every((k) => caps[k] !== "unavailable" && caps[k] !== "unknown") : false;
+        const sync = latest.get(i.id);
+        const syncData: SyncStatusData | null = sync
+          ? { id: sync.id, kind: sync.kind, status: sync.status, stage: sync.stage, error: sync.error, progress: (sync.progressJson as SyncStatusData["progress"]) ?? {}, counts: (sync.countsJson as Record<string, number>) ?? {}, startedAt: sync.startedAt?.toISOString() ?? null, finishedAt: sync.finishedAt?.toISOString() ?? null }
+          : null;
+        const syncRunning = sync?.status === "QUEUED" || sync?.status === "RUNNING";
+        return (
+          <div key={i.id} className="rounded-xl border border-border bg-card">
+            <div className="flex flex-wrap items-start justify-between gap-4 p-5">
+              <div className="flex items-start gap-3">
+                <div className="flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground"><Plug className="size-5" /></div>
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link href={`/settings/integrations/${i.id}`} className="text-sm font-semibold hover:underline">{i.displayName}</Link>
+                    <span className="text-xs text-muted-foreground">Recharge</span>
+                    <StatusBadge status={integrationStatus[i.status]} />
+                    <StatusBadge status={automationMode[i.automationMode]} />
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {i.externalStoreId} · {i.lastSuccessfulSyncAt ? `last synced ${formatRelative(i.lastSuccessfulSyncAt)}` : "not synced yet"} · {pluralize(i._count.subscriptions, "subscription")}, {pluralize(i._count.products, "product")}, {pluralize(i._count.customers, "customer")}
+                  </div>
+                  <div className={`text-xs font-medium ${requiredOk ? "text-status-success" : "text-status-danger"}`}>
+                    {requiredOk ? "All features required by Subscription Ops are available." : "Some required capabilities are missing."}
+                    {i.capabilitiesCheckedAt && <span className="font-normal text-muted-foreground"> Checked {formatRelative(i.capabilitiesCheckedAt)}.</span>}
+                  </div>
+                  {i.lastErrorMessage && <div className="text-xs text-status-danger">Last error: {i.lastErrorMessage} ({formatDateTime(i.lastErrorAt, ctx.timezone)})</div>}
+                </div>
+              </div>
+              <IntegrationActions integrationId={i.id} displayName={i.displayName} canManage={canManage} canOperate={canOperate} syncRunning={!!syncRunning} hasSynced={!!i.lastSuccessfulSyncAt} />
             </div>
-            <div className="space-y-2">
-              <h4 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Optional Recharge features</h4>
-              <ul className="space-y-1 text-sm">
-                {OPTIONAL.map((c) => {
-                  const v = (recharge.capabilitiesJson as Capabilities | null)?.[c.key];
-                  const ok = v && v !== "unavailable";
-                  return (
-                    <li key={c.key} className="flex items-center justify-between gap-3 text-muted-foreground">
-                      <span className="flex items-center gap-2">
-                        <span className={`size-2 rounded-full ${ok ? "bg-status-success" : "bg-border"}`} />
-                        {c.label}
-                      </span>
-                      <span className="text-xs">{capLabel(v)}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-              <p className="pt-1 text-xs text-muted-foreground">Not needed. The platform never depends on premium Recharge resources.</p>
-            </div>
+            {syncData && (
+              <div className="border-t border-border px-5 py-4">
+                <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{syncData.kind === "INITIAL" ? "Initial import" : syncData.kind === "INCREMENTAL" ? "Sync" : "Journey recalculation"} · {syncData.status.toLowerCase()}{sync?.startedAt ? ` · started ${formatRelative(sync.startedAt)}` : ""}</span>
+                  <Link href={`/settings/integrations/${i.id}`} className="font-medium text-primary hover:underline">Details & history</Link>
+                </div>
+                <SyncStatus sync={syncData} compact />
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        );
+      })}
+
+      {disconnected.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Disconnected</h3>
+          {disconnected.map((i) => (
+            <div key={i.id} className="flex items-center justify-between rounded-xl border border-border px-4 py-3 text-sm">
+              <div>
+                <Link href={`/settings/integrations/${i.id}`} className="font-medium hover:underline">{i.displayName}</Link>
+                <span className="ml-2 text-xs text-muted-foreground">{i.externalStoreId} · data retained</span>
+              </div>
+              <StatusBadge status={integrationStatus.DISCONNECTED} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

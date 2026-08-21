@@ -21,11 +21,12 @@ export default async function SubscriptionsPage({ searchParams }: PageProps<"/su
   const q = typeof sp.q === "string" ? sp.q : undefined;
   const status = (typeof sp.status === "string" ? sp.status : "ALL") as SubscriptionStatus | "ALL";
   const programId = typeof sp.program === "string" ? sp.program : undefined;
+  const mapping = (typeof sp.mapping === "string" ? sp.mapping : "ALL") as "MAPPED" | "UNMAPPED" | "ALL";
   const nextAction = (typeof sp.action === "string" ? sp.action : "ALL") as "ANY" | "NONE" | "ALL";
   const page = Number(sp.page ?? 1) || 1;
 
   const [data, programs] = await Promise.all([
-    listSubscriptions(ctx, { q, status, programId, nextAction, page }),
+    listSubscriptions(ctx, { q, status, programId, mapping, nextAction, page }),
     listProgramsForFilter(ctx),
   ]);
 
@@ -49,6 +50,14 @@ export default async function SubscriptionsPage({ searchParams }: PageProps<"/su
             ]}
           />
           <SelectFilter name="program" label="Program" options={programs.map((p) => ({ value: p.id, label: p.name }))} />
+          <SelectFilter
+            name="mapping"
+            label="Mapping"
+            options={[
+              { value: "MAPPED", label: "Mapped to a program" },
+              { value: "UNMAPPED", label: "Unmapped" },
+            ]}
+          />
           <SelectFilter
             name="action"
             label="Next action"
@@ -129,7 +138,7 @@ export default async function SubscriptionsPage({ searchParams }: PageProps<"/su
         total={data.total}
         pageSize={SUBSCRIPTION_PAGE_SIZE}
         basePath="/subscriptions"
-        params={{ q, status: status === "ALL" ? undefined : status, program: programId, action: nextAction === "ALL" ? undefined : nextAction }}
+        params={{ q, status: status === "ALL" ? undefined : status, program: programId, mapping: mapping === "ALL" ? undefined : mapping, action: nextAction === "ALL" ? undefined : nextAction }}
       />
     </>
   );

@@ -44,21 +44,26 @@ The seed is idempotent — it removes and recreates the demo organisations and u
 | `npm run db:migrate` / `db:push` / `db:deploy` / `db:studio` | Prisma, loading `.env.local` |
 | `npm run db:seed` | Demo data |
 
+## Connecting Recharge (Phase 2)
+
+Settings → Integrations → **Connect Recharge**. Paste an Admin API token with least privilege — Customers, Products, Orders, Store information (*view*) and Subscriptions (*view + manage*) — plus the API client secret. **Test connection** probes the endpoints empirically (premium Events/Credits/Storefront are never called and never required); **Save** encrypts the credentials per integration and queues a read-only initial import. Run `npm run inngest:dev` alongside `npm run dev` so the import executes locally. Progress and history are on the integration's detail page; afterwards create subscription programs on the Products page and assign imported products to them — journeys recalculate automatically. Nothing is ever written to Recharge in this phase.
+
 ## Layout
 
 ```text
 app/(auth)        login / signup
 app/(onboarding)  create first organisation
 app/(app)         authenticated, organisation-scoped shell and pages
-app/api           auth, inngest, (legacy Recharge POC routes — replaced in Phase 2)
+app/api           auth, inngest
 components/       ui primitives, layout, data, status, timeline, domain composites
 lib/auth          Better Auth, session, tenancy (OrgContext, requireOrg, requireRole)
 lib/db            prisma singleton, dbFor(ctx) org-scoped client
 lib/crypto        credential encryption (AES-256-GCM, key rotation)
-lib/domain        queries + server actions (always take an OrgContext)
-lib/jobs          Inngest client, events, functions
+lib/integrations  provider-agnostic DTOs + recharge/ (client, schemas, mapper, resources, capabilities, webhooks)
+lib/domain        queries + server actions (always take an OrgContext); sync/, journeys/, programs/, integrations/
+lib/jobs          Inngest client, events, functions (integration-sync, journeys-recalculate)
 prisma/           schema, migrations, seed
-tests/            vitest
+tests/            vitest (unit + DB-backed integration)
 ```
 
 ## Tenant isolation rules

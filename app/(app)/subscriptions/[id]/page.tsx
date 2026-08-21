@@ -135,6 +135,50 @@ export default async function SubscriptionDetailPage({ params }: PageProps<"/sub
       </section>
 
       <section className="space-y-3">
+        <SectionHeader
+          title="Order history"
+          description="Successful orders imported from the subscription platform for this subscription — the facts delivery cycles are counted from. Compare against Recharge: each row is one processed order."
+        />
+        {s.orders.length === 0 ? (
+          <EmptyState compact title="No imported orders" description="No successful orders have been imported for this subscription yet." />
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Processed</TableHead>
+                  <TableHead>Order</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Product at the time</TableHead>
+                  <TableHead>Counted as</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {s.orders.map((o) => {
+                  const hit = s.journeys.flatMap((j) => j.cycles.map((c) => ({ j, c }))).find((x) => x.c.externalOrderId === o.externalOrderId);
+                  return (
+                    <TableRow key={o.id}>
+                      <TableCell className="tnum">{formatDate(o.processedAt, ctx.timezone)}</TableCell>
+                      <TableCell className="font-mono text-xs">#{o.externalOrderId}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{o.orderKind === "CHECKOUT" ? "Checkout" : "Recurring"}</TableCell>
+                      <TableCell className="text-sm">{o.productTitle ?? o.externalProductId}<span className="ml-1 font-mono text-[11px] text-muted-foreground">{o.externalVariantId}</span></TableCell>
+                      <TableCell className="text-sm">
+                        {hit ? (
+                          <span>Delivery <span className="tnum font-semibold">{hit.c.cycleNumber}</span> <span className="text-muted-foreground">· {hit.j.program.name}{s.journeys.length > 1 ? ` (journey ${hit.j.sequence})` : ""}</span></span>
+                        ) : (
+                          <span className="text-xs text-status-warning">not counted — product not mapped to a program</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3">
         <SectionHeader title="Actions" description="Every automation action for this subscription, newest first." />
         {s.actions.length === 0 ? (
           <EmptyState compact title="No actions yet" />

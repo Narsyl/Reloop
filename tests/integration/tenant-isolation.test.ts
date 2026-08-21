@@ -176,6 +176,27 @@ async function seedOrg(org: { id: string; slug: string; name: string }, userId: 
   });
   ids.ActivityLog = log.id;
 
+  const syncRun = await prisma.integrationSync.create({
+    data: { organizationId: org.id, integrationId: integ.id, kind: "INITIAL", status: "COMPLETED", stage: "COMPLETE" },
+  });
+  ids.IntegrationSync = syncRun.id;
+
+  const so = await prisma.subscriptionOrder.create({
+    data: {
+      organizationId: org.id,
+      integrationId: integ.id,
+      subscriptionId: sub.id,
+      externalSubscriptionId: "s1",
+      externalOrderId: "o1",
+      orderKind: "CHECKOUT",
+      orderStatus: "success",
+      processedAt: new Date(),
+      externalProductId: "p1",
+      externalVariantId: "v1",
+    },
+  });
+  ids.SubscriptionOrder = so.id;
+
   return ids as Record<TenantModelName, string>;
 }
 

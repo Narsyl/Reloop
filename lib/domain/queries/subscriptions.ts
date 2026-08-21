@@ -11,6 +11,7 @@ export type SubscriptionFilters = {
   q?: string;
   status?: SubscriptionStatus | "ALL";
   programId?: string;
+  mapping?: "MAPPED" | "UNMAPPED" | "ALL";
   nextAction?: "ANY" | "NONE" | "ALL";
   page?: number;
 };
@@ -22,6 +23,7 @@ export async function listSubscriptions(ctx: Ctx, filters: SubscriptionFilters) 
 
   if (filters.status && filters.status !== "ALL") where.status = filters.status;
   if (filters.programId) where.currentJourney = { programId: filters.programId };
+  if (filters.mapping && filters.mapping !== "ALL") where.mappingStatus = filters.mapping;
   if (filters.q?.trim()) {
     const q = filters.q.trim();
     where.OR = [
@@ -81,6 +83,7 @@ export async function getSubscriptionDetail(ctx: Ctx, id: string) {
         orderBy: { sequence: "asc" },
         include: { program: true, cycles: { orderBy: { cycleNumber: "asc" } } },
       },
+      orders: { orderBy: { processedAt: "asc" } },
       actions: {
         orderBy: [{ targetChargeAt: "desc" }, { createdAt: "desc" }],
         include: { fulfillmentMarker: true, rule: { select: { id: true, name: true } }, journey: { select: { id: true, sequence: true } } },

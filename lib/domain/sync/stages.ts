@@ -1,0 +1,252 @@
+import "server-only";
+import type { Prisma } from "@prisma/client";
+import { dbFor } from "@/lib/db/tenant";
+import type { RechargeConnector } from "@/lib/integrations/recharge";
+import type { ConnectorOrder, ConnectorProduct, ConnectorSubscription } from "@/lib/integrations/types";
+import { recalculateJourneysForSubscriptions } from "@/lib/domain/journeys/recalc";
+import type { SyncCounts } from "./progress";
+
+/**
+ * Import stages. Each function imports ONE page and returns the next cursor and
+ * count deltas, so the orchestrating job can persist progress between pages and
+ * resume after a crash. Everything is an upsert keyed by the provider's ids
+ * scoped to the integration — running a page twice changes nothing.
+ *
+ * READ-ONLY with respect to the provider: nothing here calls a write endpoint.
+ */
+type Ctx = { organizationId: string };
+type PageResult = { nextCursor: string | null; items: number; delta: Partial<SyncCounts> };
+
+// ── products ───────────────────────────────────────────────────────────────
+
+export async function importProductsPage(ctx: Ctx, connector: RechargeConnector, integrationId: string, cursor: string | null, updatedSince?: Date | null): Promise<PageResult> {
+  const iter = connector.listProducts({ startCursor: cursor, updatedSince: updatedSince ?? undefined });
+  const page = await iter.next();
+  if (page.done) return { nextCursor: null, items: 0, delta: {} };
+  const { items, skipped, nextCursor } = page.value;
+  let variants = 0;
+  for (const p of items) variants += await upsertProduct(ctx, integrationId, p);
+  return { nextCursor, items: items.length, delta: { products: items.length, variants, productsSkipped: skipped } };
+}
+
+async function upsertProduct(ctx: Ctx, integrationId: string, p: ConnectorProduct): Promise<number> {
+  const db = dbFor(ctx);
+  const product = await db.product.upsert({
+    where: { integrationId_externalProductId: { integrationId, externalProductId: p.externalProductId } },
+    create: {
+      organizationId: ctx.organizationId,
+      integrationId,
+      externalProductId: p.externalProductId,
+      title: p.title,
+      active: p.active,
+      providerData: (p.providerData ?? undefined) as Prisma.InputJsonValue | undefined,
+      lastSyncedAt: new Date(),
+    },
+    update: { title: p.title, active: p.active, providerData: (p.providerData ?? undefined) as Prisma.InputJsonValue | undefined, lastSyncedAt: new Date() },
+    select: { id: true },
+  });
+  for (const v of p.variants) {
+    await db.productVariant.upsert({
+      where: { productId_externalVariantId: { productId: product.id, externalVariantId: v.externalVariantId } },
+      create: { organizationId: ctx.organizationId, productId: product.id, externalVariantId: v.externalVariantId, title: v.title, sku: v.sku, price: v.price, active: true },
+      update: { title: v.title, sku: v.sku, price: v.price, active: true },
+    });
+  }
+  return p.variants.length;
+}
+
+// ── customers ──────────────────────────────────────────────────────────────
+
+export async function importCustomersPage(ctx: Ctx, connector: RechargeConnector, integrationId: string, cursor: string | null, updatedSince?: Date | null): Promise<PageResult> {
+  const db = dbFor(ctx);
+  const iter = connector.listCustomers({ startCursor: cursor, updatedSince: updatedSince ?? undefined });
+  const page = await iter.next();
+  if (page.done) return { nextCursor: null, items: 0, delta: {} };
+  const { items, nextCursor } = page.value;
+  for (const c of items) {
+    await db.customer.upsert({
+      where: { integrationId_externalCustomerId: { integrationId, externalCustomerId: c.externalCustomerId } },
+      create: { organizationId: ctx.organizationId, integrationId, externalCustomerId: c.externalCustomerId, email: c.email, firstName: c.firstName, lastName: c.lastName, lastSyncedAt: new Date() },
+      update: { email: c.email, firstName: c.firstName, lastName: c.lastName, lastSyncedAt: new Date() },
+    });
+  }
+  return { nextCursor, items: items.length, delta: { customers: items.length } };
+}
+
+// ── subscriptions ──────────────────────────────────────────────────────────
+
+function toInternalStatus(s: ConnectorSubscription["status"]): "ACTIVE" | "CANCELLED" | "EXPIRED" | "UNKNOWN" {
+  return s === "active" ? "ACTIVE" : s === "cancelled" ? "CANCELLED" : s === "expired" ? "EXPIRED" : "UNKNOWN";
+}
+
+/** Local midnight of a YYYY-MM-DD in `timeZone` — the earliest instant the charge could run. */
+export function localMidnightUtc(ymd: string, timeZone: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+  // find the UTC instant at which local time is 00:00 on that date
+  const guess = Date.UTC(y, m - 1, d, 0, 0, 0);
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(guess));
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  const localAsUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour") % 24, get("minute"));
+  const offset = localAsUtc - guess; // how far local is ahead of UTC at that instant
+  return new Date(guess - offset);
+}
+
+export async function importSubscriptionsPage(
+  ctx: Ctx & { timezone: string },
+  connector: RechargeConnector,
+  integrationId: string,
+  status: "active" | "cancelled" | "expired",
+  cursor: string | null,
+  updatedSince?: Date | null,
+): Promise<PageResult> {
+  const db = dbFor(ctx);
+  const iter = connector.listSubscriptions({ status, startCursor: cursor, updatedSince: updatedSince ?? undefined });
+  const page = await iter.next();
+  if (page.done) return { nextCursor: null, items: 0, delta: {} };
+  const { items, nextCursor } = page.value;
+
+  // resolve customer + catalogue ids for this page in two queries
+  const customerIds = [...new Set(items.map((s) => s.externalCustomerId))];
+  const customers = await db.customer.findMany({ where: { integrationId, externalCustomerId: { in: customerIds } }, select: { id: true, externalCustomerId: true } });
+  const customerMap = new Map(customers.map((c) => [c.externalCustomerId, c.id]));
+  const productIds = [...new Set(items.map((s) => s.externalProductId).filter(Boolean))];
+  const products = await db.product.findMany({ where: { integrationId, externalProductId: { in: productIds } }, select: { id: true, externalProductId: true, variants: { select: { id: true, externalVariantId: true } } } });
+  const productMap = new Map(products.map((p) => [p.externalProductId, p]));
+
+  let active = 0;
+  for (const s of items) {
+    const internalStatus = toInternalStatus(s.status);
+    if (internalStatus === "ACTIVE") active++;
+    const product = productMap.get(s.externalProductId);
+    const variantId = product?.variants.find((v) => v.externalVariantId === s.externalVariantId)?.id ?? null;
+    const nextChargeAt = s.nextChargeDate ? localMidnightUtc(s.nextChargeDate, ctx.timezone) : null;
+    const common = {
+      customerId: customerMap.get(s.externalCustomerId) ?? null,
+      externalCustomerId: s.externalCustomerId,
+      externalAddressId: s.externalAddressId,
+      status: internalStatus,
+      externalStatus: s.providerStatus,
+      productId: product?.id ?? null,
+      variantId,
+      externalProductId: s.externalProductId,
+      externalVariantId: s.externalVariantId,
+      productTitleSnapshot: s.productTitle,
+      variantTitleSnapshot: s.variantTitle,
+      skuSnapshot: s.sku,
+      quantity: s.quantity,
+      price: s.price,
+      intervalUnit: s.intervalUnit,
+      intervalFrequency: s.intervalFrequency,
+      nextChargeDate: s.nextChargeDate,
+      nextChargeAt,
+      externalCreatedAt: s.externalCreatedAt,
+      cancelledAt: s.cancelledAt,
+      providerData: (s.providerData ?? undefined) as Prisma.InputJsonValue | undefined,
+      lastSyncedAt: new Date(),
+    };
+    await db.subscription.upsert({
+      where: { integrationId_externalSubscriptionId: { integrationId, externalSubscriptionId: s.externalSubscriptionId } },
+      create: { organizationId: ctx.organizationId, integrationId, externalSubscriptionId: s.externalSubscriptionId, ...common },
+      update: common,
+    });
+  }
+  return { nextCursor, items: items.length, delta: { subscriptions: items.length, subscriptionsActive: active, subscriptionsInactive: items.length - active } };
+}
+
+// ── orders ─────────────────────────────────────────────────────────────────
+
+/**
+ * Walk successful orders and record one SubscriptionOrder per subscription line.
+ * Only `status === "success"` lines are stored — the definition of a cycle.
+ */
+export async function importOrdersPage(ctx: Ctx, connector: RechargeConnector, integrationId: string, cursor: string | null, updatedSince?: Date | null): Promise<PageResult> {
+  const db = dbFor(ctx);
+  const iter = connector.listOrders({ status: "success", startCursor: cursor, updatedSince: updatedSince ?? undefined });
+  const page = await iter.next();
+  if (page.done) return { nextCursor: null, items: 0, delta: {} };
+  const { items, nextCursor } = page.value;
+
+  const lines = collectSubscriptionLines(items);
+  const subIds = [...new Set(lines.map((l) => l.externalSubscriptionId))];
+  const subs = await db.subscription.findMany({ where: { integrationId, externalSubscriptionId: { in: subIds } }, select: { id: true, externalSubscriptionId: true } });
+  const subMap = new Map(subs.map((s) => [s.externalSubscriptionId, s.id]));
+
+  let unlinked = 0;
+  for (const l of lines) {
+    const subscriptionId = subMap.get(l.externalSubscriptionId) ?? null;
+    if (!subscriptionId) unlinked++;
+    await db.subscriptionOrder.upsert({
+      where: { integrationId_externalOrderId_externalSubscriptionId: { integrationId, externalOrderId: l.externalOrderId, externalSubscriptionId: l.externalSubscriptionId } },
+      create: { organizationId: ctx.organizationId, integrationId, subscriptionId, externalOrderId: l.externalOrderId, externalSubscriptionId: l.externalSubscriptionId, ...l.data },
+      update: { subscriptionId, ...l.data },
+    });
+  }
+  return { nextCursor, items: items.length, delta: { orders: items.length, orderLines: lines.length, orderLinesUnlinked: unlinked } };
+}
+
+type SubscriptionLine = {
+  externalOrderId: string;
+  externalSubscriptionId: string;
+  data: Omit<Prisma.SubscriptionOrderUncheckedCreateInput, "organizationId" | "integrationId" | "subscriptionId" | "externalOrderId" | "externalSubscriptionId">;
+};
+
+export function collectSubscriptionLines(orders: ConnectorOrder[]): SubscriptionLine[] {
+  const out: SubscriptionLine[] = [];
+  for (const o of orders) {
+    if (o.status !== "success" || !o.processedAt) continue;
+    // one row per (order, subscription) — collapse duplicate lines for the same subscription
+    const seen = new Set<string>();
+    for (const li of o.lineItems) {
+      if (li.purchaseItemType !== "subscription" || !li.purchaseItemId) continue;
+      if (seen.has(li.purchaseItemId)) continue;
+      seen.add(li.purchaseItemId);
+      out.push({
+        externalOrderId: o.externalOrderId,
+        externalSubscriptionId: li.purchaseItemId,
+        data: {
+          externalChargeId: o.externalChargeId,
+          externalCustomerId: o.externalCustomerId,
+          externalAddressId: o.externalAddressId,
+          orderKind: o.kind,
+          orderStatus: o.status,
+          processedAt: o.processedAt,
+          externalProductId: li.externalProductId ?? "",
+          externalVariantId: li.externalVariantId ?? "",
+          quantity: li.quantity,
+          productTitle: li.title,
+          providerData: { platformOrderId: o.platformOrderId, scheduledAt: o.scheduledAt, sku: li.sku },
+        },
+      });
+    }
+  }
+  return out;
+}
+
+// ── journeys ───────────────────────────────────────────────────────────────
+
+/** Relink SubscriptionOrders that arrived before their Subscription row (or were unlinked). */
+export async function relinkOrphanOrders(ctx: Ctx, integrationId: string): Promise<number> {
+  const db = dbFor(ctx);
+  const orphans = await db.subscriptionOrder.findMany({ where: { integrationId, subscriptionId: null }, select: { id: true, externalSubscriptionId: true }, take: 5000 });
+  if (orphans.length === 0) return 0;
+  const ids = [...new Set(orphans.map((o) => o.externalSubscriptionId))];
+  const subs = await db.subscription.findMany({ where: { integrationId, externalSubscriptionId: { in: ids } }, select: { id: true, externalSubscriptionId: true } });
+  const map = new Map(subs.map((s) => [s.externalSubscriptionId, s.id]));
+  let linked = 0;
+  for (const o of orphans) {
+    const sid = map.get(o.externalSubscriptionId);
+    if (!sid) continue;
+    await db.subscriptionOrder.update({ where: { id: o.id }, data: { subscriptionId: sid } });
+    linked++;
+  }
+  return linked;
+}
+
+/** Recalculate journeys for a batch (by offset) of the integration's subscriptions. */
+export async function recalculateJourneysBatch(ctx: Ctx, integrationId: string, offset: number, batchSize: number) {
+  const db = dbFor(ctx);
+  const subs = await db.subscription.findMany({ where: { integrationId }, orderBy: { id: "asc" }, skip: offset, take: batchSize, select: { id: true } });
+  if (subs.length === 0) return { processed: 0, mapped: 0, unmapped: 0, changed: 0, unresolvedOrders: 0, orphanJourneysKept: 0, done: true };
+  const agg = await recalculateJourneysForSubscriptions(ctx, integrationId, subs.map((s) => s.id));
+  return { ...agg, done: subs.length < batchSize };
+}

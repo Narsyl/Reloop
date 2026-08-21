@@ -103,6 +103,8 @@ model Organization {
   events             IntegrationEvent[]
   exceptions         Exception[]
   activityLogs       ActivityLog[]
+  syncs              IntegrationSync[]
+  subscriptionOrders SubscriptionOrder[]
 }
 
 enum OrganizationRole {
@@ -165,13 +167,15 @@ model Integration {
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
 
-  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  customers     Customer[]
-  products      Product[]
-  subscriptions Subscription[]
-  actions       AutomationAction[]
-  events        IntegrationEvent[]
-  exceptions    Exception[]
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customers          Customer[]
+  products           Product[]
+  subscriptions      Subscription[]
+  actions            AutomationAction[]
+  events             IntegrationEvent[]
+  exceptions         Exception[]
+  syncs              IntegrationSync[]
+  subscriptionOrders SubscriptionOrder[]
 
   @@unique([organizationId, provider, externalStoreId])
   @@index([organizationId])
@@ -214,6 +218,7 @@ model Product {
   title             String
   type              ProductType @default(SUBSCRIPTION_PRODUCT)
   active            Boolean     @default(true)
+  providerData      Json? // restrained snapshot: provider product id, handle, image — debugging only
   lastSyncedAt      DateTime?
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
@@ -360,6 +365,7 @@ model Subscription {
   externalCreatedAt  DateTime?
   cancelledAt        DateTime?
   automationOverride AutomationOverride?
+  providerData       Json? // restrained snapshot: cancellation reason, charge interval, has_queued_charge, address id — debugging/reconciliation only
 
   currentJourneyId String?   @unique
   lastSyncedAt     DateTime?
@@ -373,6 +379,7 @@ model Subscription {
   variant        ProductVariant?       @relation(fields: [variantId], references: [id], onDelete: SetNull)
   currentJourney SubscriptionJourney?  @relation("CurrentJourney", fields: [currentJourneyId], references: [id], onDelete: SetNull)
   journeys       SubscriptionJourney[] @relation("SubscriptionJourneys")
+  orders         SubscriptionOrder[]
   actions        AutomationAction[]
   exceptions     Exception[]
 
@@ -706,4 +713,92 @@ model ActivityLog {
 
   @@index([organizationId, createdAt])
   @@index([entityType, entityId])
+}
+
+// ═══════════════════════════ Sync runs & imported order history ═══════════════════════════
+
+enum SyncKind {
+  INITIAL
+  INCREMENTAL
+  RECALCULATE_JOURNEYS
+}
+
+enum SyncStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum SyncStage {
+  CONNECTING
+  PRODUCTS
+  CUSTOMERS
+  SUBSCRIPTIONS
+  ORDERS
+  JOURNEYS
+  COMPLETE
+}
+
+// One operator/system-triggered sync run. Persistent progress (stage, cursor, counts)
+// lives here so the UI can show where a run is and a retry can resume — Inngest is
+// execution, this is the record.
+model IntegrationSync {
+  id              String     @id @default(cuid())
+  organizationId  String
+  integrationId   String
+  kind            SyncKind
+  status          SyncStatus @default(QUEUED)
+  stage           SyncStage  @default(CONNECTING)
+  triggeredById   String?
+  inngestRunId    String?
+  updatedSince    DateTime? // INCREMENTAL: only records updated after this instant
+  progressJson    Json? // { stage: { cursor, pages, items, done } }
+  countsJson      Json? // final/rolling counts: products, variants, customers, subscriptions, orders, cycles, unmapped
+  error           String?
+  lastHeartbeatAt DateTime?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration  Integration  @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([integrationId, createdAt])
+  @@index([organizationId, status])
+}
+
+// One successful provider ORDER line for one provider SUBSCRIPTION — the durable fact
+// journeys are calculated from. Written by sync/webhooks, never deleted by recalculation.
+// Unique per (integration, order, subscription) → importing the same order twice is a no-op.
+model SubscriptionOrder {
+  id                     String    @id @default(cuid())
+  organizationId         String
+  integrationId          String
+  subscriptionId         String? // linked once the Subscription row exists
+  externalSubscriptionId String
+  externalOrderId        String
+  externalChargeId       String?
+  externalCustomerId     String?
+  externalAddressId      String?
+  orderKind              OrderKind
+  orderStatus            String // provider status at import time (we only store success)
+  processedAt            DateTime
+  externalProductId      String
+  externalVariantId      String
+  quantity               Int       @default(1)
+  productTitle           String?
+  providerData           Json?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration  Integration   @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@unique([integrationId, externalOrderId, externalSubscriptionId])
+  @@index([subscriptionId, processedAt])
+  @@index([integrationId, externalSubscriptionId, processedAt])
 }
