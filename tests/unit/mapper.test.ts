@@ -86,6 +86,35 @@ describe("Recharge mapper", () => {
     expect(collectSubscriptionLines([{ ...o, status: "error" }])).toHaveLength(0);
   });
 
+  // ── regression fixtures from the live Ancient Extracts validation (21 Aug 2026) ──
+  it("AE 805925419: a failed-payment order (status error) produces no subscription-order fact — a failed charge never advances a cycle", () => {
+    const ok = mapOrder(rcOrderSchema.parse({ id: 1325717132, status: "success", type: "checkout", processed_at: "2026-04-26T00:00:00", line_items: [{ purchase_item_id: 805925419, purchase_item_type: "subscription", external_product_id: { ecommerce: "8807821312295" }, external_variant_id: { ecommerce: "55983052521858" } }] }));
+    const failed = mapOrder(rcOrderSchema.parse({ id: 1360000000, status: "error", type: "recurring", processed_at: "2026-05-24T00:00:00", line_items: [{ purchase_item_id: 805925419, purchase_item_type: "subscription", external_product_id: { ecommerce: "8807821312295" }, external_variant_id: { ecommerce: "55983052521858" } }] }));
+    const lines = collectSubscriptionLines([ok, failed]);
+    expect(lines.map((l) => l.externalOrderId)).toEqual(["1325717132"]);
+  });
+
+  it("AE 737740264: one Recharge order carrying three subscription lines yields one fact per purchase_item_id — sibling subscriptions never contaminate each other", () => {
+    const o = mapOrder(
+      rcOrderSchema.parse({
+        id: 1305431804,
+        status: "success",
+        type: "recurring",
+        processed_at: "2026-04-06T00:00:00",
+        line_items: [
+          { purchase_item_id: 737740263, purchase_item_type: "subscription", external_product_id: "8525215334695", external_variant_id: "55982994850178", sku: "lm100" },
+          { purchase_item_id: 737740264, purchase_item_type: "subscription", external_product_id: "8848660857127", external_variant_id: "55983050785154", sku: "mm101" },
+          { purchase_item_id: 787055994, purchase_item_type: "subscription", external_product_id: "8525213040935", external_variant_id: "55982992916866", sku: "cord100" },
+        ],
+      }),
+    );
+    const lines = collectSubscriptionLines([o]);
+    expect(lines.map((l) => l.externalSubscriptionId).sort()).toEqual(["737740263", "737740264", "787055994"]);
+    const mm = lines.find((l) => l.externalSubscriptionId === "737740264")!;
+    expect(mm.data.externalProductId).toBe("8848660857127");
+    expect(lines.every((l) => l.externalOrderId === "1305431804")).toBe(true);
+  });
+
   it("treats legacy subscription_id line items as subscription lines", () => {
     const o = mapOrder(rcOrderSchema.parse({ id: 1, status: "success", type: "checkout", processed_at: "2026-01-01T00:00:00", line_items: [{ subscription_id: 42, external_product_id: { ecommerce: "1" }, external_variant_id: { ecommerce: "2" } }] }));
     expect(o.kind).toBe("CHECKOUT");

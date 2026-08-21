@@ -125,6 +125,46 @@ describe("computeJourneys", () => {
     expect(JSON.stringify(a)).toEqual(JSON.stringify(b));
   });
 
+  // ── regression fixtures from the live Ancient Extracts validation (21 Aug 2026) ──
+  it("AE 861649121: an active subscription with a queued charge but no successful order has successfulCycles = 0", () => {
+    // only SUCCESSFUL orders ever become facts; a queued/scheduled charge never does
+    const r = computeJourneys([], current({ externalCreatedAt: d("2026-08-09") }), resolve, catalogue);
+    expect(r.segments).toHaveLength(1);
+    expect(r.segments[0].cycles).toHaveLength(0);
+    expect(r.currentIndex).toBe(0);
+  });
+
+  it("AE 735805552: starter-kit product → main product inside the same programme continues the journey (5 + 2 = 7)", () => {
+    const sk = (id: string, at: string) => order(id, at, "mm", "sk-default");
+    const r = computeJourneys(
+      [sk("o1", "2025-12-11"), sk("o2", "2026-01-08"), sk("o3", "2026-02-06"), sk("o4", "2026-04-05"), sk("o5", "2026-04-29"), order("o6", "2026-06-07", "mm"), order("o7", "2026-07-11", "mm")],
+      current(),
+      resolve,
+      catalogue,
+    );
+    expect(r.segments).toHaveLength(1);
+    expect(r.segments[0].cycles.map((c) => c.cycleNumber)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it("AE 735782768: orders on an unmapped bundle before the mapped product are excluded; the mapped journey starts at 1 (7, not 9)", () => {
+    const r = computeJourneys(
+      [order("p1", "2025-12-11", "pair"), order("p2", "2026-01-08", "pair"), ...[2, 3, 4, 5, 6, 7, 8].map((m) => order(`r${m}`, `2026-0${m}-05`, "cacao"))],
+      current({ externalProductId: "cacao" }),
+      resolve,
+      catalogue,
+    );
+    expect(r.unresolvedOrders).toBe(2);
+    expect(r.segments).toHaveLength(1);
+    expect(r.segments[0].cycles).toHaveLength(7);
+  });
+
+  it("AE 849878775: two successful orders on the same day for different programmes → only the mapped one counts, the journey starts at 1", () => {
+    const r = computeJourneys([order("lm1", "2026-07-16", "unmapped-lm"), order("lm2", "2026-08-13", "unmapped-lm"), order("mm1", "2026-08-13", "mm")], current(), resolve, catalogue);
+    expect(r.unresolvedOrders).toBe(2);
+    expect(r.segments).toHaveLength(1);
+    expect(r.segments[0].cycles).toEqual([expect.objectContaining({ cycleNumber: 1, externalOrderId: "mm1" })]);
+  });
+
   it("duplicate order ids are not double counted by the caller contract (one fact per order)", () => {
     // computeJourneys trusts facts are unique per order; SubscriptionOrder's unique index guarantees it upstream.
     const r = computeJourneys([order("o1", "2026-01-01", "mm")], current(), resolve, catalogue);
