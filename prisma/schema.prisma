@@ -1,0 +1,708 @@
+// Subscription Operations Platform — foundation schema (Phase 1)
+// Source of truth for the domain model. See docs/ARCHITECTURE.md §4–§5 and §21.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+// ═══════════════════════════ Identity & tenancy ═══════════════════════════
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  name          String
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  memberships OrganizationMembership[]
+  sessions    Session[]
+  accounts    Account[]
+}
+
+// Better Auth managed tables (Session / Account / Verification)
+model Session {
+  id                   String   @id @default(cuid())
+  userId               String
+  token                String   @unique
+  expiresAt            DateTime
+  ipAddress            String?
+  userAgent            String?
+  activeOrganizationId String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+model Organization {
+  id              String   @id @default(cuid())
+  name            String
+  slug            String   @unique
+  timezone        String   @default("Europe/London")
+  currency        String   @default("GBP")
+  markerLeadHours Int      @default(72) // D6: attach marker this many hours before target charge
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  memberships        OrganizationMembership[]
+  integrations       Integration[]
+  customers          Customer[]
+  products           Product[]
+  productVariants    ProductVariant[]
+  programs           SubscriptionProgram[]
+  programProducts    SubscriptionProgramProduct[]
+  fulfillmentMarkers FulfillmentMarker[]
+  subscriptions      Subscription[]
+  journeys           SubscriptionJourney[]
+  journeyCycles      JourneyCycle[]
+  rules              AutomationRule[]
+  actions            AutomationAction[]
+  events             IntegrationEvent[]
+  exceptions         Exception[]
+  activityLogs       ActivityLog[]
+}
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+model OrganizationMembership {
+  id             String           @id @default(cuid())
+  organizationId String
+  userId         String
+  role           OrganizationRole @default(VIEWER)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+// ═══════════════════════════ Integrations ═══════════════════════════
+
+enum IntegrationProvider {
+  RECHARGE
+}
+
+enum IntegrationStatus {
+  CONNECTED
+  ERROR
+  DISCONNECTED
+}
+
+// Rollout control: OFF = never write; DRY_RUN = plan + validate, log "would attach"; LIVE = write.
+enum AutomationMode {
+  OFF
+  DRY_RUN
+  LIVE
+}
+
+model Integration {
+  id                    String              @id @default(cuid())
+  organizationId        String
+  provider              IntegrationProvider
+  status                IntegrationStatus   @default(CONNECTED)
+  externalStoreId       String
+  displayName           String
+  encryptedCredentials  String // AES-256-GCM blob; excluded from default selects; never logged
+  credentialsKeyId      String              @default("v1")
+  automationMode        AutomationMode      @default(OFF)
+  settingsJson          Json?
+  capabilitiesJson      Json?
+  capabilitiesCheckedAt DateTime?
+  lastSuccessfulSyncAt  DateTime?
+  lastErrorAt           DateTime?
+  lastErrorMessage      String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customers     Customer[]
+  products      Product[]
+  subscriptions Subscription[]
+  actions       AutomationAction[]
+  events        IntegrationEvent[]
+  exceptions    Exception[]
+
+  @@unique([organizationId, provider, externalStoreId])
+  @@index([organizationId])
+}
+
+// ═══════════════════════════ Catalogue, customers, programs ═══════════════════════════
+
+model Customer {
+  id                 String    @id @default(cuid())
+  organizationId     String
+  integrationId      String
+  externalCustomerId String
+  email              String?
+  firstName          String?
+  lastName           String?
+  lastSyncedAt       DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration   Integration    @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+
+  @@unique([integrationId, externalCustomerId])
+  @@index([organizationId, email])
+  @@index([organizationId, lastName, firstName])
+}
+
+enum ProductType {
+  SUBSCRIPTION_PRODUCT
+  FULFILMENT_MARKER
+  GIFT_PRODUCT
+}
+
+model Product {
+  id                String      @id @default(cuid())
+  organizationId    String
+  integrationId     String
+  externalProductId String
+  title             String
+  type              ProductType @default(SUBSCRIPTION_PRODUCT)
+  active            Boolean     @default(true)
+  lastSyncedAt      DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  organization    Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration     Integration                  @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  variants        ProductVariant[]
+  programProducts SubscriptionProgramProduct[]
+  subscriptions   Subscription[]
+  journeys        SubscriptionJourney[]
+
+  @@unique([integrationId, externalProductId])
+  @@index([organizationId, type, active])
+}
+
+model ProductVariant {
+  id                String   @id @default(cuid())
+  organizationId    String
+  productId         String
+  externalVariantId String
+  title             String
+  sku               String?
+  price             Decimal? @db.Decimal(10, 2)
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization    Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  product         Product                      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  markers         FulfillmentMarker[]
+  programProducts SubscriptionProgramProduct[]
+  subscriptions   Subscription[]
+  journeys        SubscriptionJourney[]
+
+  @@unique([productId, externalVariantId])
+  @@index([organizationId, sku])
+}
+
+// D7: a SubscriptionProgram defines which products/variants share ONE milestone journey.
+model SubscriptionProgram {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  products     SubscriptionProgramProduct[]
+  journeys     SubscriptionJourney[]
+  rules        AutomationRule[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, active])
+}
+
+// Membership of a product (all variants) or one specific variant in a program.
+// variantScope = variantId, or "*" for product-level. Unique per (org, product, scope) so any
+// product/variant resolves to AT MOST ONE program; a variant-level row wins over a "*" row.
+model SubscriptionProgramProduct {
+  id             String   @id @default(cuid())
+  organizationId String
+  programId      String
+  productId      String
+  variantId      String?
+  variantScope   String   @default("*")
+  createdAt      DateTime @default(now())
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  program      SubscriptionProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  product      Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant      ProductVariant?     @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, productId, variantScope])
+  @@index([programId])
+}
+
+model FulfillmentMarker {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  variantId      String
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  variant      ProductVariant     @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  rules        AutomationRule[]
+  actions      AutomationAction[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, active])
+}
+
+// ═══════════════════════════ Subscriptions & journeys ═══════════════════════════
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+  EXPIRED
+  UNKNOWN
+}
+
+enum MappingStatus {
+  MAPPED
+  UNMAPPED
+}
+
+enum AutomationOverride {
+  ENABLED
+  DISABLED
+}
+
+model Subscription {
+  id                     String             @id @default(cuid())
+  organizationId         String
+  integrationId          String
+  customerId             String?
+  externalSubscriptionId String
+  externalCustomerId     String
+  externalAddressId      String
+  status                 SubscriptionStatus @default(UNKNOWN)
+  externalStatus         String?
+  mappingStatus          MappingStatus      @default(UNMAPPED)
+
+  productId            String?
+  variantId            String?
+  externalProductId    String
+  externalVariantId    String
+  productTitleSnapshot String
+  variantTitleSnapshot String?
+  skuSnapshot          String?
+
+  quantity           Int                 @default(1)
+  price              Decimal?            @db.Decimal(10, 2)
+  intervalUnit       String?
+  intervalFrequency  Int?
+  nextChargeDate     String? // YYYY-MM-DD as Recharge gives it
+  nextChargeAt       DateTime? // local midnight of nextChargeDate in org timezone
+  externalCreatedAt  DateTime?
+  cancelledAt        DateTime?
+  automationOverride AutomationOverride?
+
+  currentJourneyId String?   @unique
+  lastSyncedAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration    Integration           @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  customer       Customer?             @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  product        Product?              @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant        ProductVariant?       @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  currentJourney SubscriptionJourney?  @relation("CurrentJourney", fields: [currentJourneyId], references: [id], onDelete: SetNull)
+  journeys       SubscriptionJourney[] @relation("SubscriptionJourneys")
+  actions        AutomationAction[]
+  exceptions     Exception[]
+
+  @@unique([integrationId, externalSubscriptionId])
+  @@index([organizationId, status])
+  @@index([organizationId, mappingStatus])
+  @@index([organizationId, nextChargeAt])
+  @@index([customerId])
+}
+
+enum JourneyEndReason {
+  PROGRAM_CHANGE
+  CANCELLED
+  EXPIRED
+  UNMAPPED
+  MANUAL
+}
+
+// One program's run within a subscription. Cycles, rules and actions hang off the journey.
+model SubscriptionJourney {
+  id                String            @id @default(cuid())
+  organizationId    String
+  subscriptionId    String
+  programId         String
+  productId         String?
+  variantId         String?
+  externalProductId String
+  externalVariantId String
+  sequence          Int
+  startedAt         DateTime
+  endedAt           DateTime?
+  endReason         JourneyEndReason?
+  successfulCycles  Int               @default(0)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription Subscription        @relation("SubscriptionJourneys", fields: [subscriptionId], references: [id], onDelete: Cascade)
+  program      SubscriptionProgram @relation(fields: [programId], references: [id], onDelete: Restrict)
+  product      Product?            @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant      ProductVariant?     @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  currentOf    Subscription?       @relation("CurrentJourney")
+  cycles       JourneyCycle[]
+  actions      AutomationAction[]
+  exceptions   Exception[]
+
+  @@unique([subscriptionId, sequence])
+  @@index([organizationId, programId])
+}
+
+enum CycleSource {
+  WEBHOOK
+  BACKFILL
+  MANUAL
+}
+
+enum OrderKind {
+  CHECKOUT
+  RECURRING
+}
+
+// One successful order counted for a journey. Unique on order id → idempotent counting.
+model JourneyCycle {
+  id               String      @id @default(cuid())
+  organizationId   String
+  journeyId        String
+  cycleNumber      Int
+  externalOrderId  String
+  externalChargeId String?
+  orderKind        OrderKind
+  processedAt      DateTime
+  source           CycleSource
+  sourceEventId    String?
+  createdAt        DateTime    @default(now())
+
+  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  journey          SubscriptionJourney @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  sourceEvent      IntegrationEvent?   @relation(fields: [sourceEventId], references: [id], onDelete: SetNull)
+  fulfilledActions AutomationAction[]
+
+  @@unique([journeyId, externalOrderId])
+  @@unique([journeyId, cycleNumber])
+  @@index([organizationId, processedAt])
+}
+
+// ═══════════════════════════ Rules & actions ═══════════════════════════
+
+enum RuleTriggerType {
+  SUBSCRIPTION_CYCLE
+}
+
+enum RuleActionType {
+  ADD_FULFILLMENT_MARKER
+}
+
+enum ExistingSubscriptionPolicy {
+  FUTURE_ONLY
+  INCLUDE_EXISTING
+}
+
+model AutomationRule {
+  id                  String                     @id @default(cuid())
+  organizationId      String
+  name                String
+  description         String?
+  enabled             Boolean                    @default(false)
+  priority            Int                        @default(100)
+  triggerType         RuleTriggerType            @default(SUBSCRIPTION_CYCLE)
+  programId           String
+  cycleNumber         Int
+  actionType          RuleActionType             @default(ADD_FULFILLMENT_MARKER)
+  fulfillmentMarkerId String
+  existingPolicy      ExistingSubscriptionPolicy @default(FUTURE_ONLY)
+  activatedAt         DateTime?
+  lastTriggeredAt     DateTime?
+  createdById         String?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  program           SubscriptionProgram @relation(fields: [programId], references: [id], onDelete: Restrict)
+  fulfillmentMarker FulfillmentMarker   @relation(fields: [fulfillmentMarkerId], references: [id], onDelete: Restrict)
+  actions           AutomationAction[]
+  exceptions        Exception[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, enabled, programId, cycleNumber])
+}
+
+enum ActionType {
+  ADD_FULFILLMENT_MARKER
+}
+
+enum ActionSource {
+  RULE
+  MANUAL
+  BACKFILL
+}
+
+// D6 state model:
+//   PLANNED    decided; no external write yet (visible in Upcoming immediately)
+//   EXECUTING  attach in progress
+//   ATTACHED   one-time exists in Recharge on the target date
+//   FULFILLED  target cycle's order processed AND contained the marker line
+//   FAILED     terminal error (Exception raised)  |  CANCELLED  no longer applicable (reason recorded)
+//   SUPERSEDED replaced by a newer live action for the same milestone
+enum ActionStatus {
+  PLANNED
+  EXECUTING
+  ATTACHED
+  FULFILLED
+  FAILED
+  CANCELLED
+  SUPERSEDED
+}
+
+model AutomationAction {
+  id                  String       @id @default(cuid())
+  organizationId      String
+  integrationId       String
+  ruleId              String?
+  subscriptionId      String
+  journeyId           String
+  fulfillmentMarkerId String
+  type                ActionType   @default(ADD_FULFILLMENT_MARKER)
+  source              ActionSource @default(RULE)
+  targetCycle         Int
+  status              ActionStatus @default(PLANNED)
+
+  // Idempotency: "<journeyId>:<targetCycle>:<fulfillmentMarkerId>" while status is live
+  // (PLANNED / EXECUTING / ATTACHED / FULFILLED / FAILED); NULL when CANCELLED / SUPERSEDED.
+  liveKey String? @unique
+
+  targetChargeDate String? // YYYY-MM-DD (Recharge date-only value)
+  targetChargeAt   DateTime? // local midnight of targetChargeDate in org timezone
+  executeAfter     DateTime? // targetChargeAt - markerLeadHours (or now, if already inside the window)
+  executedAt       DateTime?
+  verifiedAt       DateTime?
+
+  externalObjectType String?
+  externalObjectId   String?
+  externalChargeDate String?
+  externalAddressId  String?
+  fulfilledByCycleId String?
+
+  dryRun        Boolean   @default(false)
+  attemptCount  Int       @default(0)
+  nextAttemptAt DateTime?
+  lastError     String?
+  lastErrorAt   DateTime?
+  cancelReason  String?
+
+  triggeredByEventId String?
+  createdById        String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration       Integration         @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  rule              AutomationRule?     @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  subscription      Subscription        @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  journey           SubscriptionJourney @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  fulfillmentMarker FulfillmentMarker   @relation(fields: [fulfillmentMarkerId], references: [id], onDelete: Restrict)
+  fulfilledByCycle  JourneyCycle?       @relation(fields: [fulfilledByCycleId], references: [id], onDelete: SetNull)
+  triggeredByEvent  IntegrationEvent?   @relation(fields: [triggeredByEventId], references: [id], onDelete: SetNull)
+  exceptions        Exception[]
+
+  @@index([organizationId, status, targetChargeAt])
+  @@index([status, executeAfter])
+  @@index([subscriptionId])
+}
+
+// ═══════════════════════════ Event inbox ═══════════════════════════
+
+enum IntegrationEventStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+// Webhook deliveries received directly by this platform. Never populated from a provider "events" API.
+model IntegrationEvent {
+  id              String                 @id @default(cuid())
+  organizationId  String
+  integrationId   String
+  provider        IntegrationProvider
+  eventType       String
+  externalEventId String?
+  dedupeKey       String
+  payloadJson     Json
+  headersJson     Json?
+  signatureValid  Boolean
+  receivedAt      DateTime               @default(now())
+  dispatchedAt    DateTime?
+  processedAt     DateTime?
+  status          IntegrationEventStatus @default(RECEIVED)
+  attemptCount    Int                    @default(0)
+  lastError       String?
+
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration   Integration        @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  journeyCycles JourneyCycle[]
+  actions       AutomationAction[]
+
+  @@unique([integrationId, dedupeKey])
+  @@index([status, receivedAt])
+  @@index([organizationId, receivedAt])
+}
+
+// ═══════════════════════════ Exceptions & activity ═══════════════════════════
+
+enum ExceptionSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum ExceptionStatus {
+  OPEN
+  RESOLVED
+  IGNORED
+}
+
+model Exception {
+  id             String            @id @default(cuid())
+  organizationId String
+  severity       ExceptionSeverity
+  type           String
+  title          String
+  description    String
+  status         ExceptionStatus   @default(OPEN)
+  autoResolved   Boolean           @default(false)
+  integrationId  String?
+  subscriptionId String?
+  journeyId      String?
+  ruleId         String?
+  actionId       String?
+  metadataJson   Json?
+  detectedAt     DateTime          @default(now())
+  resolvedAt     DateTime?
+  resolvedById   String?
+  resolutionNote String?
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration  Integration?         @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+  subscription Subscription?        @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  journey      SubscriptionJourney? @relation(fields: [journeyId], references: [id], onDelete: SetNull)
+  rule         AutomationRule?      @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  action       AutomationAction?    @relation(fields: [actionId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status, severity])
+  @@index([organizationId, detectedAt])
+}
+
+enum ActorType {
+  USER
+  SYSTEM
+  INTEGRATION
+}
+
+enum EntityType {
+  ORGANIZATION
+  USER
+  INTEGRATION
+  PRODUCT
+  PROGRAM
+  FULFILLMENT_MARKER
+  SUBSCRIPTION
+  JOURNEY
+  RULE
+  ACTION
+  EXCEPTION
+  EVENT
+}
+
+model ActivityLog {
+  id             String     @id @default(cuid())
+  organizationId String
+  actorType      ActorType
+  actorId        String?
+  eventType      String
+  entityType     EntityType
+  entityId       String
+  summary        String
+  metadataJson   Json?
+  createdAt      DateTime   @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId])
+}

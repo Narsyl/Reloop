@@ -944,3 +944,35 @@ Rollout stages 1–9 from the brief map onto phases 2→3→3→4→5→5→7→
 | D10 | Recharge plan independence | hard rule; V1 permissions = Customers/Orders/Products/Store view + Subscriptions view & manage; `IntegrationEvent` = webhooks only; capability probe on connect |
 
 Reply with changes, or "go" to start Phase 1 exactly as written.
+
+---
+
+## 21. Locked decisions (21 Aug 2026) — supersedes §4, §11, §14, §20 where they differ
+
+**`prisma/schema.prisma` is now the source of truth for the data model.** This section records what changed and why.
+
+### D2 — Inngest is the durable execution layer; Postgres is the source of truth
+- `app/api/inngest/route.ts` serves functions from `lib/jobs/functions/*`. Every function takes only stable internal ids (`{ integrationEventId }`, `{ automationActionId }`, `{ subscriptionId }`, `{ integrationId }`) and loads current state from the DB. Credentials are decrypted inside the connector call, never carried in event payloads.
+- Webhook route: identify integration → verify HMAC → minimal Zod parse → dedupe key → persist `IntegrationEvent` → `inngest.send({ name: "integration/event.received", id: eventId, data: { integrationEventId } })` → 200. Inngest event `id` = our row id, so a double-send is a no-op on their side too.
+- Error classification in the connector: transient (429/5xx/network/timeout/DB connectivity) → throw, Inngest retries with backoff; permanent (auth, permission, missing product/subscription, validation, impossible state) → `NonRetriableError` + action FAILED/CANCELLED + Exception.
+- Schedules are Inngest cron functions: dispatch due actions (every 10 min: `status=PLANNED AND executeAfter <= now`), T-24h verification, daily integration reconcile, and a 5-minute sweep that re-sends any `IntegrationEvent` still `RECEIVED` with `dispatchedAt` null older than 2 min (in-Inngest backup for a failed send). Vercel Cron is not in the critical path; a `/api/jobs/ping` fallback may be added later.
+- Per-subscription serialisation: Inngest `concurrency: { key: "event.data.subscriptionId", limit: 1 }` on event-processing and reconcile functions, plus the `FOR UPDATE` on the journey row inside the transaction.
+- `Job` model removed. `attemptCount / lastError / nextAttemptAt / executeAfter / externalObjectId / dispatchedAt` live on `AutomationAction` / `IntegrationEvent` so the state is recoverable without Inngest.
+
+### D6 — Planned-action model with a lead-time window
+- **Decide** on cycle N−1 (immediately): `planAction()` creates `PLANNED` with `targetCycle = N`, `targetChargeDate` (Recharge's date-only value), `targetChargeAt`, `executeAfter`. Visible at once in Upcoming / detail / history.
+- **Attach** at `executeAfter = targetChargeAt − Organization.markerLeadHours` (default 72; org-configurable later). If already inside the window at planning → `executeAfter = now`.
+- **Dates:** Recharge gives a date, not an instant. `targetChargeAt` = local midnight of `targetChargeDate` in the organisation's timezone (the earliest instant the charge could run). All windows are computed from that; no hard-coded UTC hour anywhere. The one-time is still created with `next_charge_scheduled_at = targetChargeDate` exactly — we choose *when our call happens*, never *which charge it belongs to*.
+- **Status vocabulary** (replaces SUCCEEDED): `PLANNED → EXECUTING → ATTACHED → FULFILLED`, plus `FAILED`, `CANCELLED`, `SUPERSEDED`. `ATTACHED` = one-time exists in Recharge on the target date. `FULFILLED` = cycle N's order was recorded *and contained the marker line* (`fulfilledByCycleId`). Cycle N processed without the marker → `FAILED` + `MARKER_MISSED`. A reschedule that makes us delete a one-time moves `ATTACHED → PLANNED` (logged) with a recomputed `executeAfter`; `SUPERSEDED` stays narrow (rule's marker changed).
+- **Checks:** at plan — rule/marker valid, subscription active, next cycle sensible; before attach — refresh subscription, same journey/program, charge date present (update `targetChargeDate/At` on legitimate reschedule), marker variant exists, not already present (adopt if present); at T-24h — one-time exists, date matches, subscription valid, no duplicate; drift → repair if safe else Exception.
+
+### D7 — SubscriptionProgram decides journey identity
+- `SubscriptionProgram { organizationId, name, description, active }` and `SubscriptionProgramProduct { programId, productId, variantId?, variantScope }` where `variantScope = variantId ?? "*"` and `@@unique([organizationId, productId, variantScope])` — any product/variant resolves to **at most one** program; a variant row wins over a product-level row.
+- `SubscriptionJourney.programId` is required. Variant change within the same program → same journey, `variantId` updated, `SUBSCRIPTION_VARIANT_CHANGED` activity. Product/variant resolving to a different program → end journey (`PROGRAM_CHANGE`), new journey at 0. Unresolvable → `Subscription.mappingStatus = UNMAPPED`, no journey, pending automation cancelled, `PRODUCT_MAPPING_MISSING` exception; a re-map job creates journeys and backfills cycles once the mapping exists.
+- `AutomationRule.programId` replaces `productId/variantId`. Three concepts stay separate: **Product** (catalogue), **SubscriptionProgram** (lifecycle grouping), **FulfillmentMarker** (operational item).
+
+### Other changes
+- Package renamed `subscription-ops` (neutral placeholder; no public brand chosen). Folder rename deferred.
+- Prisma pinned to **6.x** for the foundation (stable, Better Auth adapter-proven); migration to 7 is a later, documented step.
+- `Organization.markerLeadHours`, `Subscription.mappingStatus`, `Subscription.nextChargeDate` (date string) + `nextChargeAt`, `AutomationAction.{targetChargeDate,targetChargeAt,executeAfter,verifiedAt,fulfilledByCycleId}`, `IntegrationEvent.dispatchedAt`, `Exception.resolutionNote` added. `JourneyEndReason.PRODUCT_SWAP` → `PROGRAM_CHANGE` (+ `UNMAPPED`).
+- Known risks accepted: a ≥72h outage would miss attachments (made loud by T-24h verification + `MARKER_MISSED`); Recharge "upcoming order" emails (~3 days out) may land before or after T-72h — `markerLeadHours` is the dial; Inngest free-tier concurrency is modest.
