@@ -9,6 +9,15 @@ describe("Recharge mapper", () => {
     expect(mapStore(parsed.store)).toEqual({ externalStoreId: "ae.myshopify.com", name: "Ancient Extracts", domain: "ae.myshopify.com", email: "a@b.c", currency: "GBP", timezone: "Europe/London" });
   });
 
+  it("accepts the 2021-11 store timezone object shape and string shape", () => {
+    const obj = storeEnvelope.parse({ store: { id: 1, name: "S", domain: "s.myshopify.com", timezone: { iana_name: "Europe/London", name: "(GMT+00:00) London" } } });
+    expect(mapStore(obj.store).timezone).toBe("Europe/London");
+    const str = storeEnvelope.parse({ store: { id: 1, name: "S", domain: "s.myshopify.com", timezone: "Europe/Dublin" } });
+    expect(mapStore(str.store).timezone).toBe("Europe/Dublin");
+    const none = storeEnvelope.parse({ store: { id: 1, name: "S", timezone: null } });
+    expect(mapStore(none.store).timezone).toBeNull();
+  });
+
   it("maps a subscription using commerce (Shopify) product/variant ids and date-only next charge", () => {
     const raw = rcSubscriptionSchema.parse({
       id: 123,

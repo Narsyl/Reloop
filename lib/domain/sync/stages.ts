@@ -2,6 +2,7 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 import { dbFor } from "@/lib/db/tenant";
 import type { RechargeConnector } from "@/lib/integrations/recharge";
+import { isRechargeError } from "@/lib/integrations/recharge/errors";
 import type { ConnectorOrder, ConnectorProduct, ConnectorSubscription } from "@/lib/integrations/types";
 import { recalculateJourneysForSubscriptions } from "@/lib/domain/journeys/recalc";
 import type { SyncCounts } from "./progress";
@@ -19,9 +20,23 @@ type PageResult = { nextCursor: string | null; items: number; delta: Partial<Syn
 
 // ── products ───────────────────────────────────────────────────────────────
 
+/** True when Recharge says /products is not available on this store's platform (Shopify checkout). */
+export function isProductsEndpointUnavailable(e: unknown): boolean {
+  return isRechargeError(e) && e.kind === "VALIDATION_ERROR" && /platform/i.test(e.message);
+}
+
 export async function importProductsPage(ctx: Ctx, connector: RechargeConnector, integrationId: string, cursor: string | null, updatedSince?: Date | null): Promise<PageResult> {
   const iter = connector.listProducts({ startCursor: cursor, updatedSince: updatedSince ?? undefined });
-  const page = await iter.next();
+  let page: IteratorResult<Awaited<ReturnType<typeof iter.next>>["value"]>;
+  try {
+    page = await iter.next();
+  } catch (e) {
+    if (isProductsEndpointUnavailable(e)) {
+      // Catalogue is derived from subscriptions + order lines instead (see below).
+      return { nextCursor: null, items: 0, delta: { productsEndpointUnavailable: 1 } };
+    }
+    throw e;
+  }
   if (page.done) return { nextCursor: null, items: 0, delta: {} };
   const { items, skipped, skippedVariants, nextCursor } = page.value;
   let variants = 0;
@@ -53,6 +68,57 @@ async function upsertProduct(ctx: Ctx, integrationId: string, p: ConnectorProduc
     });
   }
   return p.variants.length;
+}
+
+/**
+ * Upsert Product/ProductVariant rows from identifiers seen on subscriptions or
+ * order lines. Creates missing rows with the titles/SKU we observed; existing
+ * rows keep their title (a /products import or an earlier, current subscription
+ * is a better source than an old order line) but gain a missing SKU/variant title.
+ */
+export async function deriveCatalogue(
+  ctx: Ctx,
+  integrationId: string,
+  seen: { externalProductId: string; externalVariantId: string; productTitle: string | null; variantTitle: string | null; sku: string | null; price: string | null }[],
+): Promise<{ products: number; variants: number }> {
+  const db = dbFor(ctx);
+  const byProduct = new Map<string, { title: string | null; variants: Map<string, { title: string | null; sku: string | null; price: string | null }> }>();
+  for (const s of seen) {
+    if (!s.externalProductId || !s.externalVariantId) continue;
+    let p = byProduct.get(s.externalProductId);
+    if (!p) {
+      p = { title: s.productTitle, variants: new Map() };
+      byProduct.set(s.externalProductId, p);
+    }
+    if (!p.title && s.productTitle) p.title = s.productTitle;
+    const v = p.variants.get(s.externalVariantId);
+    if (!v) p.variants.set(s.externalVariantId, { title: s.variantTitle, sku: s.sku, price: s.price });
+    else {
+      if (!v.title && s.variantTitle) v.title = s.variantTitle;
+      if (!v.sku && s.sku) v.sku = s.sku;
+      if (!v.price && s.price) v.price = s.price;
+    }
+  }
+  let products = 0;
+  let variants = 0;
+  for (const [externalProductId, p] of byProduct) {
+    const product = await db.product.upsert({
+      where: { integrationId_externalProductId: { integrationId, externalProductId } },
+      create: { organizationId: ctx.organizationId, integrationId, externalProductId, title: p.title ?? `Product ${externalProductId}`, active: true, providerData: { derivedFrom: "subscriptions" }, lastSyncedAt: new Date() },
+      update: { lastSyncedAt: new Date() },
+      select: { id: true },
+    });
+    products++;
+    for (const [externalVariantId, v] of p.variants) {
+      await db.productVariant.upsert({
+        where: { productId_externalVariantId: { productId: product.id, externalVariantId } },
+        create: { organizationId: ctx.organizationId, productId: product.id, externalVariantId, title: v.title ?? "Default", sku: v.sku, price: v.price, active: true },
+        update: { ...(v.sku ? { sku: v.sku } : {}), ...(v.title ? { title: v.title } : {}) },
+      });
+      variants++;
+    }
+  }
+  return { products, variants };
 }
 
 // ── customers ──────────────────────────────────────────────────────────────
@@ -104,6 +170,15 @@ export async function importSubscriptionsPage(
   const page = await iter.next();
   if (page.done) return { nextCursor: null, items: 0, delta: {} };
   const { items, nextCursor } = page.value;
+
+  // Derive catalogue rows from the subscriptions themselves (the only product source on
+  // Shopify-checkout stores, and a harmless confirmation elsewhere). Titles from a
+  // live subscription never overwrite a title that /products already provided.
+  await deriveCatalogue(
+    ctx,
+    integrationId,
+    items.map((s) => ({ externalProductId: s.externalProductId, externalVariantId: s.externalVariantId, productTitle: s.productTitle, variantTitle: s.variantTitle, sku: s.sku, price: s.price })),
+  );
 
   // resolve customer + catalogue ids for this page in two queries
   const customerIds = [...new Set(items.map((s) => s.externalCustomerId))];
@@ -167,6 +242,12 @@ export async function importOrdersPage(ctx: Ctx, connector: RechargeConnector, i
   const { items, nextCursor } = page.value;
 
   const lines = collectSubscriptionLines(items);
+  // historical products/variants that no live subscription references any more
+  await deriveCatalogue(
+    ctx,
+    integrationId,
+    lines.map((l) => ({ externalProductId: l.data.externalProductId, externalVariantId: l.data.externalVariantId, productTitle: l.data.productTitle ?? null, variantTitle: null, sku: (l.data.providerData as { sku?: string | null } | undefined)?.sku ?? null, price: null })),
+  );
   const subIds = [...new Set(lines.map((l) => l.externalSubscriptionId))];
   const subs = await db.subscription.findMany({ where: { integrationId, externalSubscriptionId: { in: subIds } }, select: { id: true, externalSubscriptionId: true } });
   const subMap = new Map(subs.map((s) => [s.externalSubscriptionId, s.id]));

@@ -29,6 +29,7 @@ const OPTIONAL: { key: keyof ConnectionTestResult["capabilities"]; label: string
 
 function capLabel(v: string) {
   if (v === "read_write") return "read / write";
+  if (v === "derived") return "derived from subscriptions (no /products on this platform)";
   if (v === "unavailable") return "not on plan / no permission";
   if (v === "unknown") return "could not verify";
   return v;
@@ -103,7 +104,7 @@ export function ConnectRechargeDialog({ disabled }: { disabled?: boolean }) {
             <Input id="rc-token" type="password" autoComplete="off" value={apiToken} onChange={(e) => { setApiToken(e.target.value); setResult(null); }} placeholder="sk_…" />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="rc-secret">API client secret <span className="text-muted-foreground">(for webhook verification, later)</span></Label>
+            <Label htmlFor="rc-secret">API client secret <span className="text-muted-foreground">(optional — only needed later for webhook verification; leave blank if you don&apos;t have it)</span></Label>
             <Input id="rc-secret" type="password" autoComplete="off" value={clientSecret} onChange={(e) => { setClientSecret(e.target.value); setResult(null); }} />
           </div>
           <p className="text-xs text-muted-foreground">Credentials are encrypted before storage and only ever decrypted on the server for this organisation.</p>

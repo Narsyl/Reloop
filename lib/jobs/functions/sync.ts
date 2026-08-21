@@ -115,7 +115,7 @@ export const runIntegrationSync = inngest.createFunction(
         const res: { nextCursor: string | null; items: number } = await step.run(`${label}:page:${page}`, () =>
           wrap(`${label}:page:${page}`, async () => {
             const r = await pageFn(cursor);
-            await recordProgress(ctx, syncId, stage, { cursor: r.nextCursor, pages: page, items: (previous?.items ?? 0) + r.items, done: r.nextCursor === null }, r.delta);
+            await recordProgress(ctx, syncId, stage, { cursor: r.nextCursor, pages: page, items: r.items, done: r.nextCursor === null }, r.delta);
             return { nextCursor: r.nextCursor, items: r.items };
           }),
         );
@@ -142,7 +142,7 @@ export const runIntegrationSync = inngest.createFunction(
       const r = await step.run(`journeys:batch:${batch}`, () =>
         wrap(`journeys:batch:${batch}`, async () => {
           const res = await recalculateJourneysBatch(ctx, integrationId, offset, JOURNEY_BATCH);
-          await recordProgress(ctx, syncId, "JOURNEYS", { pages: batch, items: offset + res.processed, done: res.done }, { journeysProcessed: res.processed, mapped: res.mapped, unmapped: res.unmapped, unresolvedOrders: res.unresolvedOrders });
+          await recordProgress(ctx, syncId, "JOURNEYS", { pages: batch, items: res.processed, done: res.done }, { journeysProcessed: res.processed, mapped: res.mapped, unmapped: res.unmapped, unresolvedOrders: res.unresolvedOrders });
           return res;
         }),
       );

@@ -29,7 +29,8 @@ const OPTIONAL: { key: keyof CapabilityMap; label: string }[] = [
   { key: "credits", label: "Credits" },
   { key: "customer_sessions", label: "Storefront sessions" },
 ];
-const capLabel = (v: string | undefined) => (!v || v === "unavailable" ? "unavailable on current plan / no permission" : v === "unknown" ? "could not verify" : v === "read_write" ? "read / write" : v);
+const capLabel = (v: string | undefined) =>
+  !v || v === "unavailable" ? "unavailable on current plan / no permission" : v === "unknown" ? "could not verify" : v === "read_write" ? "read / write" : v === "derived" ? "derived from subscriptions & orders" : v;
 
 function toSyncData(s: NonNullable<Awaited<ReturnType<typeof getIntegrationDetail>>>["syncs"][number]): SyncStatusData {
   return { id: s.id, kind: s.kind, status: s.status, stage: s.stage, error: s.error, progress: (s.progressJson as SyncStatusData["progress"]) ?? {}, counts: (s.countsJson as Record<string, number>) ?? {}, startedAt: s.startedAt?.toISOString() ?? null, finishedAt: s.finishedAt?.toISOString() ?? null };

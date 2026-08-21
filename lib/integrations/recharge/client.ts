@@ -147,6 +147,7 @@ export class RechargeClient {
           const parsed = opts.schema.safeParse(data);
           if (!parsed.success) {
             const issues = parsed.error.issues.slice(0, 5).map((i) => `${i.path.join(".")}: ${i.message}`);
+            this.log.warn("recharge.schema_mismatch", { method, path, status: response.status, requestId, issues, topLevelKeys: data && typeof data === "object" ? Object.keys(data as object).slice(0, 20) : typeof data });
             throw new RechargeError("SCHEMA_ERROR", `Recharge response for ${method} ${path} did not match expected shape: ${issues.join("; ")}`, {
               status: response.status,
               method,
@@ -215,6 +216,7 @@ export class RechargeClient {
           const parsed = opts.itemSchema.safeParse(item);
           if (!parsed.success) {
             const issues = parsed.error.issues.slice(0, 5).map((x) => `${x.path.join(".")}: ${x.message}`);
+            this.log.warn("recharge.schema_mismatch", { method: "GET", path, key: opts.key, index: i, issues, itemKeys: item && typeof item === "object" ? Object.keys(item as object).slice(0, 30) : typeof item });
             throw new RechargeError("SCHEMA_ERROR", `Recharge ${opts.key}[${i}] did not match expected shape: ${issues.join("; ")}`, { path, method: "GET", correlationId: this.correlationId, details: { issues, index: i } });
           }
           items.push(parsed.data);

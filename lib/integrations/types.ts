@@ -107,7 +107,13 @@ export type ConnectorOnetime = {
   externalCreatedAt: Date | null;
 };
 
-export type CapabilityState = "available" | "read" | "read_write" | "unavailable" | "unknown";
+/**
+ * "derived" = the provider has no endpoint for this on the store's platform
+ * (e.g. Recharge /products on Shopify-checkout stores) but we obtain the same
+ * data from other resources we do have (subscriptions + order lines). Counts as
+ * available for the required-capability check.
+ */
+export type CapabilityState = "available" | "read" | "read_write" | "derived" | "unavailable" | "unknown";
 
 export type CapabilityMap = {
   store: CapabilityState;

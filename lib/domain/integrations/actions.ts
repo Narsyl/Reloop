@@ -19,7 +19,8 @@ import type { ActionResult } from "@/lib/domain/organizations/actions";
 
 const credentialsSchema = z.object({
   apiToken: z.string().trim().min(20, "Paste the full Recharge API token."),
-  clientSecret: z.string().trim().min(10, "Paste the API client secret (used to verify webhooks).").optional().or(z.literal("")),
+  // Optional: only used for webhook signature verification (Phase 6). Blank → null.
+  clientSecret: z.preprocess((v) => (typeof v === "string" ? v.trim() : ""), z.string()).optional(),
 });
 
 export type ConnectionTestResult = {

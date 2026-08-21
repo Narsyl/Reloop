@@ -19,13 +19,20 @@ export const dateString = z.string().nullable().optional();
 const numberish = z.union([z.number(), z.string()]).nullable().optional();
 
 // ── store / token ──────────────────────────────────────────────────────────
+/** 2021-11 returns timezone as an object ({ iana_name, name }); older/other shapes return a string. */
+const storeTimezone = z
+  .union([z.string(), z.looseObject({ iana_name: z.string().nullable().optional(), name: z.string().nullable().optional() })])
+  .nullable()
+  .optional()
+  .transform((v) => (v === null || v === undefined ? null : typeof v === "string" ? v : (v.iana_name ?? v.name ?? null)));
+
 export const rcStoreSchema = z.looseObject({
   id: rechargeIdOptionalSchema.optional(),
   name: z.string().nullable().optional(),
   domain: z.string().nullable().optional(),
   email: z.string().nullable().optional(),
   currency: z.string().nullable().optional(),
-  timezone: z.string().nullable().optional(),
+  timezone: storeTimezone,
   iana_timezone: z.string().nullable().optional(),
   shop_email: z.string().nullable().optional(),
   external_platform: z.string().nullable().optional(),
@@ -33,13 +40,15 @@ export const rcStoreSchema = z.looseObject({
 export const storeEnvelope = z.looseObject({ store: rcStoreSchema });
 export type RcStore = z.infer<typeof rcStoreSchema>;
 
-export const tokenInformationEnvelope = z.looseObject({
-  token_information: z.looseObject({
-    name: z.string().nullable().optional(),
-    contact_email: z.string().nullable().optional(),
-    scopes: z.array(z.string()).nullable().optional(),
-  }),
-});
+/** Observed live: fields are top-level ({ scopes, name, contact_email, client }); docs show a `token_information` wrapper. Accept both. */
+const tokenInfoFields = {
+  name: z.string().nullable().optional(),
+  contact_email: z.string().nullable().optional(),
+  scopes: z.array(z.string()).nullable().optional(),
+};
+export const tokenInformationEnvelope = z
+  .looseObject({ token_information: z.looseObject(tokenInfoFields).nullable().optional(), ...tokenInfoFields })
+  .transform((v) => ({ token_information: { name: v.token_information?.name ?? v.name ?? null, contact_email: v.token_information?.contact_email ?? v.contact_email ?? null, scopes: v.token_information?.scopes ?? v.scopes ?? null } }));
 
 // ── customers ──────────────────────────────────────────────────────────────
 export const rcCustomerSchema = z.looseObject({

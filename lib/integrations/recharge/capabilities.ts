@@ -33,7 +33,8 @@ const OPTIONAL_PROBES: Probe[] = [{ key: "charges", path: "/charges", query: { l
 /** Premium resources: reported from scopes only. Never requested. */
 const PREMIUM_BY_SCOPE: { key: keyof CapabilityMap; scopes: string[]; label: string }[] = [
   { key: "events", scopes: ["read_events"], label: "Events API" },
-  { key: "credits", scopes: ["read_credits", "write_credits", "read_accounts", "write_accounts", "read_credit", "write_credit"], label: "Credits" },
+  // NB: Recharge's "read_accounts" scope is store accounts, NOT credit accounts — do not match it here.
+  { key: "credits", scopes: ["read_credits", "write_credits", "read_credit_accounts", "write_credit_accounts", "read_credit_adjustments", "write_credit_adjustments", "read_credit_summary"], label: "Credits" },
   { key: "customer_sessions", scopes: ["write_customer_sessions", "read_customer_sessions", "customer_sessions"], label: "Storefront customer sessions" },
 ];
 
@@ -67,6 +68,13 @@ async function probe(client: RechargeClient, p: Probe, notes: string[]): Promise
     if (e.kind === "NOT_FOUND") {
       notes.push(`${p.key}: endpoint not available for this store/plan (HTTP 404).`);
       return "unavailable";
+    }
+    // Recharge 2021-11: /products is only for stores using Recharge's own catalogue.
+    // Shopify-checkout stores get 422 "This API is not compatible with your platform" —
+    // we derive the catalogue from subscriptions + order lines instead.
+    if (p.key === "products" && e.kind === "VALIDATION_ERROR" && /platform/i.test(e.message)) {
+      notes.push("Products: Recharge's /products endpoint is not available on this platform (Shopify checkout); the catalogue is derived from subscriptions and order history instead.");
+      return "derived";
     }
     notes.push(`${p.key}: could not be verified (${e.kind}).`);
     return "unknown";

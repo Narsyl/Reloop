@@ -14,6 +14,7 @@ export type SyncCounts = {
   variants: number;
   productsSkipped: number;
   variantsSkipped: number;
+  productsEndpointUnavailable: number; // 1 when /products is not available on this platform (catalogue derived)
   customers: number;
   subscriptions: number;
   subscriptionsActive: number;
@@ -33,6 +34,7 @@ export const EMPTY_COUNTS: SyncCounts = {
   variants: 0,
   productsSkipped: 0,
   variantsSkipped: 0,
+  productsEndpointUnavailable: 0,
   customers: 0,
   subscriptions: 0,
   subscriptionsActive: 0,
@@ -92,16 +94,24 @@ export async function recordProgress(
   const prevStage = prev[stage] ?? { cursor: null, pages: 0, items: 0, done: false };
   const counts = { ...EMPTY_COUNTS, ...((run.countsJson as Partial<SyncCounts> | null) ?? {}) };
   for (const [k, v] of Object.entries(countDelta)) counts[k as keyof SyncCounts] += v ?? 0;
-  const next: SyncProgress = { ...prev, [stage]: { ...prevStage, ...progress } };
+  // `progress.items` is a DELTA for this page; accumulate it into the stored total.
+  const { items: itemsDelta, ...rest } = progress;
+  const next: SyncProgress = { ...prev, [stage]: { ...prevStage, ...rest, items: prevStage.items + (itemsDelta ?? 0) } };
   await db.integrationSync.update({ where: { id: syncId }, data: { stage, progressJson: next, countsJson: counts, lastHeartbeatAt: new Date() } });
   return { progress: next, counts };
 }
 
 export async function completeSyncRun(ctx: { organizationId: string }, syncId: string) {
   const db = dbFor(ctx);
-  const run = await db.integrationSync.update({ where: { id: syncId }, data: { status: "COMPLETED", stage: "COMPLETE", finishedAt: new Date(), lastHeartbeatAt: new Date() } });
+  const existing = await db.integrationSync.findUniqueOrThrow({ where: { id: syncId }, select: { integrationId: true, countsJson: true } });
+  // Catalogue totals are authoritative from the DB (covers both /products imports and derived catalogues).
+  const [productTotal, variantTotal] = await Promise.all([
+    db.product.count({ where: { integrationId: existing.integrationId } }),
+    db.productVariant.count({ where: { product: { integrationId: existing.integrationId } } }),
+  ]);
+  const counts: SyncCounts = { ...EMPTY_COUNTS, ...((existing.countsJson as Partial<SyncCounts> | null) ?? {}), products: productTotal, variants: variantTotal };
+  const run = await db.integrationSync.update({ where: { id: syncId }, data: { status: "COMPLETED", stage: "COMPLETE", finishedAt: new Date(), lastHeartbeatAt: new Date(), countsJson: counts } });
   await db.integration.update({ where: { id: run.integrationId }, data: { lastSuccessfulSyncAt: new Date(), status: "CONNECTED", lastErrorAt: null, lastErrorMessage: null } });
-  const counts = (run.countsJson as SyncCounts | null) ?? EMPTY_COUNTS;
   await logActivity(ctx, {
     actorType: "SYSTEM",
     eventType: "SYNC_COMPLETED",
