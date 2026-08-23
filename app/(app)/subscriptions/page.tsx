@@ -122,7 +122,7 @@ export default async function SubscriptionsPage({ searchParams }: PageProps<"/su
                     <TableCell>
                       {next ? (
                         <span className="flex items-center gap-2">
-                          <span className="truncate text-sm">→ {next.fulfillmentMarker.name}</span>
+                          <span className="truncate text-sm">→ {next.rewardItem?.name ?? next.fulfillmentMarker?.name ?? "—"}</span>
                           <StatusBadge status={actionStatus[next.status]} dot={false} />
                         </span>
                       ) : (

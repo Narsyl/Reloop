@@ -196,6 +196,14 @@ async function seedOrg(org: { id: string; slug: string; name: string }, userId: 
   const binding = await prisma.programMilestoneMarker.create({ data: { organizationId: org.id, programId: program.id, rewardScheduleMilestoneId: milestone.id, fulfillmentMarkerId: marker.id } });
   ids.ProgramMilestoneMarker = binding.id;
 
+  const shopifyInteg = await prisma.integration.create({
+    data: { organizationId: org.id, provider: "SHOPIFY", externalStoreId: `shp-${org.id}.myshopify.com`, displayName: "Shopify", encryptedCredentials: "x", automationMode: "OFF", pairedIntegrationId: integ.id },
+  });
+  const rewardBinding = await prisma.rewardItemExternalBinding.create({
+    data: { organizationId: org.id, rewardItemId: rewardItem.id, integrationId: shopifyInteg.id, provider: "SHOPIFY", externalProductId: "p1", externalVariantId: "v-bind-1", externalTitle: "Whisk" },
+  });
+  ids.RewardItemExternalBinding = rewardBinding.id;
+
   const so = await prisma.subscriptionOrder.create({
     data: {
       organizationId: org.id,
@@ -283,7 +291,11 @@ describe("tenant isolation via dbFor()", () => {
       it("org A counts only its own rows", async () => {
         const dbA = createTenantClient(orgA.id);
         const n = await delegate(dbA, model).count();
-        expect(n).toBe(1);
+        // the scoped count equals the raw per-org count (fixtures create 1 row per model, 2 for Integration: Recharge + Shopify)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const raw = await ((prisma as any)[model.charAt(0).toLowerCase() + model.slice(1)] as { count: (a: unknown) => Promise<number> }).count({ where: { organizationId: orgA.id } });
+        expect(n).toBe(raw);
+        expect(n).toBeGreaterThanOrEqual(1);
       });
     });
   }

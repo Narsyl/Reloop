@@ -120,7 +120,7 @@ export default async function OverviewPage() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">{a.journey.program.name}</TableCell>
                     <TableCell className="tnum text-right">{a.targetCycle}</TableCell>
-                    <TableCell>→ {a.fulfillmentMarker.name}</TableCell>
+                    <TableCell>→ {a.rewardItem?.name ?? a.fulfillmentMarker?.name ?? "—"}</TableCell>
                     <TableCell className="tnum">{formatDateOnly(a.targetChargeDate)}</TableCell>
                     <TableCell>
                       <StatusBadge status={actionStatus[a.status]} />

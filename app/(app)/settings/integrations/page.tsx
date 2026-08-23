@@ -118,7 +118,7 @@ export default async function IntegrationsPage() {
                     <span className="text-xs text-muted-foreground">Shopify · catalogue + markers only</span>
                     <StatusBadge status={integrationStatus[i.status]} />
                   </div>
-                  <div className="text-xs text-muted-foreground">{settings?.shopDomain ?? i.externalStoreId} · serves {paired ? paired.displayName : "no Recharge store (pair it)"} · {pluralize(i._count.shopifyMarkers, "marker")} verified here{i.capabilitiesCheckedAt ? ` · checked ${formatRelative(i.capabilitiesCheckedAt)}` : ""}</div>
+                  <div className="text-xs text-muted-foreground">{settings?.shopDomain ?? i.externalStoreId} · serves {paired ? paired.displayName : "no Recharge store (pair it)"} · {pluralize(i._count.rewardBindings, "marker")} verified here{i.capabilitiesCheckedAt ? ` · checked ${formatRelative(i.capabilitiesCheckedAt)}` : ""}</div>
                   {i.lastErrorMessage && <div className="text-xs text-status-danger">Last error: {i.lastErrorMessage} ({formatDateTime(i.lastErrorAt, ctx.timezone)})</div>}
                 </div>
               </div>

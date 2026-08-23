@@ -107,6 +107,7 @@ model Organization {
   subscriptionOrders SubscriptionOrder[]
   plannerRuns        PlannerRun[]
   rewardItems        RewardItem[]
+  rewardBindings     RewardItemExternalBinding[]
   rewardSchedules    RewardSchedule[]
   rewardMilestones   RewardScheduleMilestone[]
   milestoneMarkers   ProgramMilestoneMarker[]
@@ -172,13 +173,17 @@ model Integration {
   lastErrorMessage      String?
   // Phase 4c: a SHOPIFY integration is paired with the RECHARGE integration whose one-times will reference its variants
   pairedIntegrationId   String?
+  // Phase 4c (revised): ephemeral access token obtained server-side from the stored client credentials
+  // (Shopify client-credentials grant, ~24h). Encrypted; never shown; refreshed automatically.
+  encryptedAccessToken  String?
+  accessTokenExpiresAt  DateTime?
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
 
-  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  pairedIntegration  Integration?        @relation("IntegrationPairing", fields: [pairedIntegrationId], references: [id], onDelete: SetNull)
-  pairedBy           Integration[]       @relation("IntegrationPairing")
-  shopifyMarkers     FulfillmentMarker[] @relation("MarkerShopifyIntegration")
+  organization       Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pairedIntegration  Integration?                @relation("IntegrationPairing", fields: [pairedIntegrationId], references: [id], onDelete: SetNull)
+  pairedBy           Integration[]               @relation("IntegrationPairing")
+  rewardBindings     RewardItemExternalBinding[]
   customers          Customer[]
   products           Product[]
   subscriptions      Subscription[]
@@ -284,9 +289,6 @@ model SubscriptionProgram {
   // lifecycle continuity (journeys, cycles) never depends on it.
   rewardScheduleId         String?
   rewardScheduleAssignedAt DateTime?
-  // Phase 4c: warehouse naming for this programme's fulfilment markers — "<markerLabel> <delivery>", SKU "<skuPrefix>-CYCLE-NN"
-  markerLabel              String?
-  skuPrefix                String?
 
   organization     Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   products         SubscriptionProgramProduct[]
@@ -330,51 +332,39 @@ enum MarkerSource {
 // The £0 item inserted into a shipment. Its EXECUTION identity is the external
 // variant id, scoped to ONE integration (a Shopify variant id from store A is never
 // usable for store B). SKU/title are operator-verification fields only.
+/// LEGACY (Phase 3/4 — retired from the execution path by the revised Phase 4c, 23 Aug 2026).
+/// A programme-specific "marker" alias (e.g. "Morning Magic 2" → a £0 variant). Kept read-only for
+/// history: discovered one-time evidence, legacy rules and legacy (rule-planned) actions. New actions
+/// reference the physical RewardItem and resolve the variant through RewardItemExternalBinding.
 model FulfillmentMarker {
-  id                          String                @id @default(cuid())
-  organizationId              String
-  integrationId               String
-  name                        String
-  description                 String?
-  variantId                   String                @unique
-  externalVariantId           String
-  externalProductId           String?
-  title                       String? // external item title as the fulfilment team sees it, e.g. "Morning Magic 2"
-  sku                         String?
-  source                      MarkerSource          @default(MANUAL)
-  active                      Boolean               @default(true)
-  // Configuration-only stand-in (e.g. a discovered paid one-time used to validate a rule).
-  // Never executable: READY rules and the planner refuse placeholder markers.
-  placeholder                 Boolean               @default(false)
-  // Operational meaning (what physically happens) — organisation-owned RewardItem, e.g. "Cup".
-  rewardItemId                String?
-  operationalNote             String?
-  // Phase 4c — Shopify catalogue identity/verification (secondary to the canonical external variant id above).
-  // The Shopify integration is the catalogue side; `integrationId` stays the Recharge store that executes one-times.
-  shopifyIntegrationId        String?
-  shopifyStatus               String? // ACTIVE | UNLISTED | DRAFT | ARCHIVED as last read
-  shopifyPublishedOnlineStore Boolean?
-  shopifyPrice                String?
-  shopifyInventoryTracked     Boolean?
-  shopifyHandle               String?
-  lastVerifiedAt              DateTime?
-  verificationJson            Json? // last read snapshot + issues — debug/secondary only
-  rechargeCompatibility       RechargeCompatibility @default(UNVERIFIED)
-  createdAt                   DateTime              @default(now())
-  updatedAt                   DateTime              @updatedAt
+  id                String       @id @default(cuid())
+  organizationId    String
+  integrationId     String
+  name              String
+  description       String?
+  variantId         String       @unique
+  externalVariantId String
+  externalProductId String?
+  title             String?
+  sku               String?
+  source            MarkerSource @default(MANUAL)
+  active            Boolean      @default(true)
+  placeholder       Boolean      @default(false)
+  rewardItemId      String?
+  operationalNote   String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
-  organization       Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  integration        Integration              @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  shopifyIntegration Integration?             @relation("MarkerShopifyIntegration", fields: [shopifyIntegrationId], references: [id], onDelete: SetNull)
-  variant            ProductVariant           @relation(fields: [variantId], references: [id], onDelete: Restrict)
-  rewardItem         RewardItem?              @relation(fields: [rewardItemId], references: [id], onDelete: SetNull)
-  milestoneBindings  ProgramMilestoneMarker[]
-  rules              AutomationRule[]
-  actions            AutomationAction[]
+  organization      Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration       Integration              @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  variant           ProductVariant           @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  rewardItem        RewardItem?              @relation(fields: [rewardItemId], references: [id], onDelete: SetNull)
+  milestoneBindings ProgramMilestoneMarker[]
+  rules             AutomationRule[]
+  actions           AutomationAction[]
 
   @@unique([organizationId, name])
   @@unique([integrationId, externalVariantId])
-  @@unique([shopifyIntegrationId, externalVariantId])
   @@index([organizationId, active])
 }
 
@@ -638,17 +628,20 @@ model AutomationAction {
   ruleId              String?
   subscriptionId      String
   journeyId           String
-  fulfillmentMarkerId String
+  // Revised Phase 4c: the physical reward this action attaches (resolved to a variant through the
+  // reward item's external binding at dry-run/execution time). Legacy rule-planned actions carry a marker instead.
+  rewardItemId        String?
+  fulfillmentMarkerId String? // LEGACY
   type                ActionType   @default(ADD_FULFILLMENT_MARKER)
   source              ActionSource @default(RULE)
   targetCycle         Int
   status              ActionStatus @default(PLANNED)
 
-  // Idempotency: "<journeyId>:<targetCycle>:<fulfillmentMarkerId>" while status is live
+  // Idempotency: "<journeyId>:<targetCycle>:<rewardItemId>" (legacy actions: marker id) while status is live
   // (PLANNED / EXECUTING / ATTACHED / FULFILLED / FAILED); NULL when CANCELLED / SUPERSEDED.
   liveKey                   String?           @unique
-  // Scope-level owner of the milestone (Phase 4): PER_SUBSCRIPTION → "j:<journeyId>:<cycle>:<markerId>",
-  // CUSTOMER_PROGRAM → "c:<customerId>:<programId>:<cycle>:<markerId>". Same lifetime as liveKey.
+  // Scope-level owner of the milestone (Phase 4): PER_SUBSCRIPTION → "j:<journeyId>:<cycle>:<rewardItemId>",
+  // CUSTOMER_PROGRAM → "c:<customerId>:<programId>:<cycle>:<rewardItemId>". Same lifetime as liveKey.
   ownerKey                  String?           @unique
   eligibilityScope          EligibilityScope?
   // Phase 4b: the effective milestone this action was planned from (rules are legacy)
@@ -693,7 +686,8 @@ model AutomationAction {
   rule              AutomationRule?          @relation(fields: [ruleId], references: [id], onDelete: SetNull)
   subscription      Subscription             @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
   journey           SubscriptionJourney      @relation(fields: [journeyId], references: [id], onDelete: Cascade)
-  fulfillmentMarker FulfillmentMarker        @relation(fields: [fulfillmentMarkerId], references: [id], onDelete: Restrict)
+  rewardItem        RewardItem?              @relation(fields: [rewardItemId], references: [id], onDelete: Restrict)
+  fulfillmentMarker FulfillmentMarker?       @relation(fields: [fulfillmentMarkerId], references: [id], onDelete: Restrict)
   fulfilledByCycle  JourneyCycle?            @relation(fields: [fulfilledByCycleId], references: [id], onDelete: SetNull)
   triggeredByEvent  IntegrationEvent?        @relation(fields: [triggeredByEventId], references: [id], onDelete: SetNull)
   plannerRun        PlannerRun?              @relation(fields: [plannerRunId], references: [id], onDelete: SetNull)
@@ -752,11 +746,50 @@ model RewardItem {
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
-  organization Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  milestones   RewardScheduleMilestone[]
-  markers      FulfillmentMarker[]
+  organization     Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  milestones       RewardScheduleMilestone[]
+  markers          FulfillmentMarker[] // legacy
+  externalBindings RewardItemExternalBinding[]
+  actions          AutomationAction[]
 
   @@unique([organizationId, name])
+}
+
+/// Revised Phase 4c: the physical reward item owns its fulfilment variant on a commerce catalogue
+/// (today: a read-only SHOPIFY integration). Every schedule milestone that awards the item resolves to
+/// this same variant — there are no programme-specific aliases. externalVariantId is the canonical
+/// identity the Recharge one-time will reference; the rest is a verified snapshot.
+model RewardItemExternalBinding {
+  id                    String                @id @default(cuid())
+  organizationId        String
+  rewardItemId          String
+  integrationId         String // the SHOPIFY integration whose catalogue holds the variant
+  provider              IntegrationProvider
+  externalProductId     String
+  externalVariantId     String
+  externalTitle         String
+  externalVariantTitle  String?
+  externalSku           String?
+  externalPrice         String?
+  externalStatus        String? // ACTIVE | DRAFT | ARCHIVED | UNLISTED as last read
+  externalHandle        String?
+  requiresShipping      Boolean?
+  inventoryTracked      Boolean?
+  active                Boolean               @default(true)
+  lastVerifiedAt        DateTime?
+  verificationJson      Json?
+  rechargeCompatibility RechargeCompatibility @default(UNVERIFIED)
+  createdById           String?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rewardItem   RewardItem   @relation(fields: [rewardItemId], references: [id], onDelete: Cascade)
+  integration  Integration  @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([rewardItemId, integrationId])
+  @@unique([integrationId, externalVariantId])
+  @@index([organizationId])
 }
 
 enum RewardScheduleStatus {
@@ -813,6 +846,8 @@ model RewardScheduleMilestone {
 }
 
 /// "For this programme, when this schedule milestone occurs, use this external marker."
+/// LEGACY (Phase 4b programme × milestone → marker binding; superseded by RewardItemExternalBinding).
+/// No longer read by the resolver/planner and no longer written; kept for history until the post-live cleanup.
 model ProgramMilestoneMarker {
   id                        String   @id @default(cuid())
   organizationId            String

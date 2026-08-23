@@ -32,6 +32,7 @@ export async function getOverview(ctx: Ctx, now = new Date()) {
         include: {
           subscription: { include: { customer: true } },
           journey: { include: { program: true } },
+          rewardItem: { select: { id: true, name: true } },
           fulfillmentMarker: true,
         },
       }),

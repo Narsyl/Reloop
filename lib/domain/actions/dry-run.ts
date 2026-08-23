@@ -16,6 +16,7 @@ import { evaluateJourneyEligibility, type IneligibilityReason } from "@/lib/doma
 import { qualifyForRule, type DisqualificationReason } from "@/lib/domain/eligibility/qualify";
 import { loadProgramPopulation } from "@/lib/domain/eligibility/population";
 import { resolveProgramRewards, type MilestoneReadinessReason } from "@/lib/domain/rewards/resolver";
+import { bindingsForRechargeStore } from "@/lib/domain/rewards/bindings";
 import type { ConnectorOnetime, ConnectorSubscription } from "@/lib/integrations/types";
 import { isRechargeError } from "@/lib/integrations/recharge/errors";
 import { logger } from "@/lib/logging/logger";
@@ -31,6 +32,8 @@ export type DryRunBlockingReason =
   | "MILESTONE_NOT_ASSIGNED"
   | "MARKER_UNAVAILABLE"
   | "MARKER_PLACEHOLDER"
+  | "REWARD_UNBOUND"
+  | "BINDING_VARIANT_MISSING"
   | IneligibilityReason
   | DisqualificationReason
   | "JOURNEY_NOT_AT_PREVIOUS_DELIVERY"
@@ -60,7 +63,8 @@ export type DryRunResult = {
   targetChargeDate: string | null;
   targetChargeAt: string | null;
   executeAfter: string | null;
-  marker: { id: string; name: string; title: string | null; sku: string | null; externalVariantId: string; externalProductId: string | null; placeholder: boolean; active: boolean };
+  /** what would physically ship: the reward item's Shopify variant (schedule-planned) or a legacy marker */
+  target: DryRunTarget | null;
   external: {
     read: boolean;
     subscriptionStatus: string | null;
@@ -83,6 +87,21 @@ export type DryRunResult = {
   };
 };
 
+export type DryRunTarget = {
+  kind: "REWARD_BINDING" | "LEGACY_MARKER";
+  rewardItem: { id: string; name: string } | null;
+  bindingId: string | null;
+  markerId: string | null;
+  shopifyIntegrationId: string | null;
+  externalVariantId: string;
+  externalProductId: string | null;
+  title: string;
+  sku: string | null;
+  price: string | null;
+  status: string | null;
+  rechargeCompatibility: string | null;
+};
+
 export async function dryRunAction(ctx: Ctx, actionId: string, opts: { now?: Date; persist?: boolean; connector?: { getSubscription: (id: string) => Promise<ConnectorSubscription>; listOnetimes: (o: { externalAddressId?: string }) => AsyncIterable<{ items: ConnectorOnetime[] }> } } = {}): Promise<DryRunResult> {
   const db = dbFor(ctx);
   const now = opts.now ?? new Date();
@@ -95,6 +114,7 @@ export async function dryRunAction(ctx: Ctx, actionId: string, opts: { now?: Dat
       journey: { include: { program: { select: { id: true, name: true } }, cycles: { orderBy: { cycleNumber: "asc" }, select: { cycleNumber: true, externalOrderId: true, processedAt: true } } } },
       rule: true,
       milestone: { include: { schedule: { select: { id: true, name: true, status: true } }, rewardItem: { select: { id: true, name: true } } } },
+      rewardItem: { select: { id: true, name: true } },
       fulfillmentMarker: true,
       integration: { select: { id: true, status: true, automationMode: true, displayName: true } },
     },
@@ -117,8 +137,23 @@ export async function dryRunAction(ctx: Ctx, actionId: string, opts: { now?: Dat
     if (!effective) block("MILESTONE_NOT_ASSIGNED", rewardView?.schedule ? `programme now on "${rewardView.schedule.name}"` : "programme has no reward schedule");
     else if (effective.readiness !== "READY") block("MILESTONE_NOT_READY", effective.readiness);
   } else if (!a.rule || (a.rule.status !== "READY" && a.rule.status !== "ACTIVE")) block("RULE_NOT_READY", a.rule?.status ?? "legacy rule retired");
-  if (!a.fulfillmentMarker.active) block("MARKER_UNAVAILABLE", "inactive");
-  if (a.fulfillmentMarker.placeholder) block("MARKER_PLACEHOLDER");
+  // ── fulfilment target: the reward item's Shopify binding for this store (schedule-planned) or a legacy marker ──
+  let target: DryRunTarget | null = null;
+  if (a.rewardItem) {
+    const bindings = await bindingsForRechargeStore(ctx, a.integrationId);
+    const b = bindings.byRewardItem.get(a.rewardItem.id) ?? null;
+    if (!bindings.shopifyIntegrationId) block("REWARD_UNBOUND", "no Shopify catalogue paired with this store");
+    else if (!b || !b.active) block("REWARD_UNBOUND", `"${a.rewardItem.name}" has no active Shopify binding`);
+    else if (b.blockingIssues.length > 0) block("BINDING_VARIANT_MISSING", b.blockingIssues.join(", "));
+    if (b) target = { kind: "REWARD_BINDING", rewardItem: a.rewardItem, bindingId: b.id, markerId: null, shopifyIntegrationId: b.integrationId, externalVariantId: b.externalVariantId, externalProductId: b.externalProductId, title: b.externalTitle, sku: b.externalSku, price: b.externalPrice, status: b.externalStatus, rechargeCompatibility: b.rechargeCompatibility };
+  } else if (a.fulfillmentMarker) {
+    const mk = a.fulfillmentMarker;
+    if (!mk.active) block("MARKER_UNAVAILABLE", "inactive");
+    if (mk.placeholder) block("MARKER_PLACEHOLDER");
+    target = { kind: "LEGACY_MARKER", rewardItem: null, bindingId: null, markerId: mk.id, shopifyIntegrationId: null, externalVariantId: mk.externalVariantId, externalProductId: mk.externalProductId, title: mk.title ?? mk.name, sku: mk.sku, price: null, status: null, rechargeCompatibility: null };
+  } else {
+    block("REWARD_UNBOUND", "action has neither a reward item nor a legacy marker");
+  }
 
   // scope-aware re-qualification from the shared population (lifetime evidence)
   let lifetime = a.journey.successfulCycles;
@@ -165,7 +200,7 @@ export async function dryRunAction(ctx: Ctx, actionId: string, opts: { now?: Dat
     else if (a.targetChargeDate && ext.nextChargeDate !== a.targetChargeDate) block("TARGET_CHARGE_MOVED", `planned ${a.targetChargeDate}, provider now ${ext.nextChargeDate} — planner will replan after the next sync`);
     // existing one-time with the marker variant on this address (would be ADOPTED, not duplicated)
     for await (const page of connector.listOnetimes({ externalAddressId: ext.externalAddressId })) {
-      const hit = page.items.find((o) => o.externalVariantId === a.fulfillmentMarker.externalVariantId && (!a.targetChargeDate || o.nextChargeDate === a.targetChargeDate));
+      const hit = target ? page.items.find((o) => o.externalVariantId === target!.externalVariantId && (!a.targetChargeDate || o.nextChargeDate === a.targetChargeDate)) : undefined;
       if (hit) {
         external.existingMarkerOnetime = { externalOnetimeId: hit.externalOnetimeId, nextChargeDate: hit.nextChargeDate };
         break;
@@ -177,15 +212,16 @@ export async function dryRunAction(ctx: Ctx, actionId: string, opts: { now?: Dat
   }
 
   const first = blockers[0] ?? null;
+  const addressId = external.externalAddressId ?? a.subscription.externalAddressId;
   const body: Record<string, unknown> = {
-    address_id: /^d+$/.test(external.externalAddressId ?? a.subscription.externalAddressId) ? Number(external.externalAddressId ?? a.subscription.externalAddressId) : (external.externalAddressId ?? a.subscription.externalAddressId),
+    address_id: /^[0-9]+$/.test(addressId) ? Number(addressId) : addressId,
     next_charge_scheduled_at: a.targetChargeDate,
-    external_variant_id: { ecommerce: a.fulfillmentMarker.externalVariantId },
-    ...(a.fulfillmentMarker.externalProductId ? { external_product_id: { ecommerce: a.fulfillmentMarker.externalProductId } } : {}),
-    product_title: a.fulfillmentMarker.title ?? a.fulfillmentMarker.name,
+    external_variant_id: { ecommerce: target?.externalVariantId ?? null },
+    ...(target?.externalProductId ? { external_product_id: { ecommerce: target.externalProductId } } : {}),
+    product_title: target?.title ?? a.rewardItem?.name ?? null,
     quantity: 1,
     price: "0.00",
-    properties: [{ name: "_subscription_ops_action", value: a.id }],
+    properties: [{ name: "_subscription_ops_action", value: a.id }, ...(a.rewardItem ? [{ name: "_subscription_ops_reward", value: a.rewardItem.name }] : [])],
   };
   const result: DryRunResult = {
     actionId: a.id,
@@ -206,7 +242,7 @@ export async function dryRunAction(ctx: Ctx, actionId: string, opts: { now?: Dat
     targetChargeDate: a.targetChargeDate,
     targetChargeAt: a.targetChargeAt?.toISOString() ?? null,
     executeAfter: a.executeAfter?.toISOString() ?? null,
-    marker: { id: a.fulfillmentMarker.id, name: a.fulfillmentMarker.name, title: a.fulfillmentMarker.title, sku: a.fulfillmentMarker.sku, externalVariantId: a.fulfillmentMarker.externalVariantId, externalProductId: a.fulfillmentMarker.externalProductId, placeholder: a.fulfillmentMarker.placeholder, active: a.fulfillmentMarker.active },
+    target,
     external,
     intendedOperation: {
       provider: "RECHARGE",

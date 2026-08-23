@@ -88,7 +88,7 @@ export default async function SubscriptionDetailPage({ params }: PageProps<"/sub
                   description={
                     nextAction ? (
                       <span className="flex items-center gap-2">
-                        → {nextAction.fulfillmentMarker.name} <StatusBadge status={actionStatus[nextAction.status]} />
+                        → {nextAction.rewardItem?.name ?? nextAction.fulfillmentMarker?.name ?? "—"} <StatusBadge status={actionStatus[nextAction.status]} />
                       </span>
                     ) : (
                       "No marker planned for this delivery."
@@ -198,7 +198,7 @@ export default async function SubscriptionDetailPage({ params }: PageProps<"/sub
               <TableBody>
                 {s.actions.map((a) => (
                   <TableRow key={a.id}>
-                    <TableCell className="font-medium">{a.fulfillmentMarker.name}</TableCell>
+                    <TableCell className="font-medium">{a.rewardItem?.name ?? a.fulfillmentMarker?.name ?? "—"}</TableCell>
                     <TableCell className="tnum text-right">{ordinal(a.targetCycle)}</TableCell>
                     <TableCell className="tnum">{formatDateOnly(a.targetChargeDate)}</TableCell>
                     <TableCell className="text-muted-foreground">
@@ -249,7 +249,7 @@ export default async function SubscriptionDetailPage({ params }: PageProps<"/sub
             <DetailRow label="Variant ID" mono>{s.externalVariantId}</DetailRow>
             <DetailRow label="Provider status" mono>{s.externalStatus ?? "—"}</DetailRow>
             {s.actions.filter((a) => a.externalObjectId).map((a) => (
-              <DetailRow key={a.id} label={`One-time · ${a.fulfillmentMarker.name}`} mono>{a.externalObjectId}</DetailRow>
+              <DetailRow key={a.id} label={`One-time · ${a.rewardItem?.name ?? a.fulfillmentMarker?.name ?? "reward"}`} mono>{a.externalObjectId}</DetailRow>
             ))}
             <DetailRow label="Internal ID" mono>{s.id}</DetailRow>
           </DetailList>

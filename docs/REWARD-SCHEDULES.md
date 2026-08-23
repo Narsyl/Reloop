@@ -196,6 +196,6 @@ Existing live programmes **not** in either schedule and untouched: Shilajit Resi
 4. Matcha and Soursop: approve mapping both continuous product ids into one programme each; Butterfly Pea variant of the coloured-powders product: exclude or map.
 
 
-## Marker creation (Phase 4c — implemented)
+## External fulfilment (revised Phase 4c — implemented)
 
-Markers are created/adopted through the Shopify marker integration (see ARCHITECTURE §26): naming `<programme label> <delivery>` (e.g. "Morning Magic 2" — never the reward name), SKU `<PREFIX>-CYCLE-NN`, price 0.00, `UNLISTED`, published to the Online Store, inventory untracked, type "Fulfillment Marker", tag `subscription-ops-marker`; each marker names its reward item (`rewardItemId`) and carries the operational note. Canonical identity stays the Shopify variant id. Creation is explicit (preview → duplicate check → confirm per row); `rechargeCompatibility` stays UNVERIFIED until the Phase 6 controlled test.
+There are no programme-specific marker products. Each physical **RewardItem** (Whisk, Cup, Spoon) binds once per store to its **existing** Shopify variant (`RewardItemExternalBinding`; canonical identity = Shopify variant id), and every schedule milestone that awards the item resolves to that same variant. Shopify access is read-only (client-credentials auth, read_products); binding is an explicit search → pick → confirm flow with read-only verification. The future Recharge one-time references the bound variant at price 0.00 with the reward name as the line title — "Morning Magic" + "Cup" on the order is what fulfilment needs. `rechargeCompatibility` stays UNVERIFIED until the Phase 6 controlled test. See ARCHITECTURE §26.

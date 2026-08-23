@@ -32,9 +32,9 @@ describe("D6 schedule maths", () => {
 describe("idempotency keys", () => {
   it("liveKey is journey:cycle:marker; ownerKey follows the rule scope", () => {
     expect(liveKeyFor("j1", 2, "m1")).toBe("j1:2:m1");
-    expect(ownerKeyFor({ scope: "PER_SUBSCRIPTION", journeyId: "j1", customerId: "c1", programId: "p1", targetCycle: 2, fulfillmentMarkerId: "m1" })).toBe("j:j1:2:m1");
-    expect(ownerKeyFor({ scope: "CUSTOMER_PROGRAM", journeyId: "j1", customerId: "c1", programId: "p1", targetCycle: 2, fulfillmentMarkerId: "m1" })).toBe("c:c1:p1:2:m1");
+    expect(ownerKeyFor({ scope: "PER_SUBSCRIPTION", journeyId: "j1", customerId: "c1", programId: "p1", targetCycle: 2, rewardId: "m1" })).toBe("j:j1:2:m1");
+    expect(ownerKeyFor({ scope: "CUSTOMER_PROGRAM", journeyId: "j1", customerId: "c1", programId: "p1", targetCycle: 2, rewardId: "m1" })).toBe("c:c1:p1:2:m1");
     // customer-programme rule on a subscription without a customer link degrades to journey ownership
-    expect(ownerKeyFor({ scope: "CUSTOMER_PROGRAM", journeyId: "j1", customerId: null, programId: "p1", targetCycle: 2, fulfillmentMarkerId: "m1" })).toBe("j:j1:2:m1");
+    expect(ownerKeyFor({ scope: "CUSTOMER_PROGRAM", journeyId: "j1", customerId: null, programId: "p1", targetCycle: 2, rewardId: "m1" })).toBe("j:j1:2:m1");
   });
 });

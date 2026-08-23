@@ -37,7 +37,7 @@ export default async function ActionDetailPage({ params }: PageProps<"/upcoming/
       <PageHeader
         eyebrow={<Link href="/upcoming" className="hover:underline">Upcoming</Link>}
         title={`${customerName(a.subscription.customer)} · ${a.journey.program.name} delivery ${a.targetCycle}`}
-        description={`→ ${a.fulfillmentMarker.name}${a.milestone ? ` (${a.milestone.rewardItem.name})` : ""}${a.targetChargeDate ? ` · target charge ${formatDateOnly(a.targetChargeDate)}` : ""}`}
+        description={`→ ${a.rewardItem?.name ?? a.fulfillmentMarker?.name ?? "reward"}${a.targetChargeDate ? ` · target charge ${formatDateOnly(a.targetChargeDate)}` : ""}`}
         meta={<><StatusBadge status={actionStatus[a.status]} size="md" /><StatusBadge status={dryRunState(a, now)} size="md" /><StatusBadge status={automationMode[a.integration.automationMode]} size="md" /></>}
         actions={canOperate && a.status === "PLANNED" ? <DryRunButton actionId={a.id} /> : undefined}
       />
@@ -56,10 +56,8 @@ export default async function ActionDetailPage({ params }: PageProps<"/upcoming/
           <Row label="Target charge date">{a.targetChargeDate ? formatDateOnly(a.targetChargeDate) : "—"} <span className="ml-1 font-mono text-xs text-muted-foreground">{a.targetChargeDate}</span></Row>
           <Row label="Target charge at">{a.targetChargeAt ? <>{formatDateTime(a.targetChargeAt, ctx.timezone)} <span className="text-xs text-muted-foreground">(local midnight in {ctx.timezone})</span></> : "—"}</Row>
           <Row label="Execute after">{a.executeAfter ? <>{formatDateTime(a.executeAfter, ctx.timezone)} <span className="text-xs text-muted-foreground">({formatRelative(a.executeAfter, now)})</span></> : "—"}</Row>
-          <Row label="Marker">{a.fulfillmentMarker.name}{a.fulfillmentMarker.placeholder ? <span className="ml-2 text-xs text-status-warning">PLACEHOLDER — not executable</span> : null}</Row>
-          <Row label="Marker title">{a.fulfillmentMarker.title ?? "—"}</Row>
-          <Row label="Marker SKU" mono>{a.fulfillmentMarker.sku ?? "—"}</Row>
-          <Row label="External variant id" mono>{a.fulfillmentMarker.externalVariantId}</Row>
+          <Row label="Reward">{a.rewardItem?.name ?? a.fulfillmentMarker?.name ?? "—"}{a.fulfillmentMarker?.placeholder ? <span className="ml-2 text-xs text-status-warning">LEGACY PLACEHOLDER — not executable</span> : a.fulfillmentMarker ? <span className="ml-2 text-xs text-muted-foreground">legacy marker</span> : null}</Row>
+          {dr?.target ? <Row label="Fulfilment variant (Shopify)"><span className="font-mono text-xs">{dr.target.externalVariantId}</span> · {dr.target.title}{dr.target.sku ? ` · SKU ${dr.target.sku}` : ""}</Row> : a.fulfillmentMarker ? <Row label="External variant id" mono>{a.fulfillmentMarker.externalVariantId}</Row> : null}
           <Row label="Recharge address id" mono>{a.externalAddressId ?? a.subscription.externalAddressId}</Row>
           <Row label="Planned">{formatDateTime(a.createdAt, ctx.timezone)}{a.plannerRun ? <span className="ml-1 text-xs text-muted-foreground">by the {a.plannerRun.trigger.toLowerCase()} planner run ({a.plannerRun.automationMode})</span> : null}{a.replanCount > 0 ? <span className="block text-xs text-muted-foreground">replanned ×{a.replanCount} · last evaluated {a.lastPlannedAt ? formatRelative(a.lastPlannedAt, now) : "—"}</span> : null}</Row>
           {a.cancelReason ? <Row label="Cancel reason">{a.cancelReason}</Row> : null}

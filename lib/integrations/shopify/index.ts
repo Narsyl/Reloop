@@ -1,16 +1,17 @@
 /**
- * Shopify connector (Phase 4c): catalogue + fulfilment-marker identity/verification ONLY.
+ * Shopify connector (revised Phase 4c): READ-ONLY catalogue access for reward-item bindings.
  *
- * Recharge remains the subscription, lifecycle, upcoming-charge and (eventual) one-time write
- * authority. This connector never reads orders/customers/fulfilments, never edits orders, and never
- * triggers automation. Its write surface is exactly: create/update a marker product (+ variant
- * price/SKU/inventory) and publish it to the Online Store.
+ * Recharge remains the subscription, lifecycle, upcoming-charge and (eventual) one-time write authority.
+ * This connector reads store identity, granted scopes, products/variants and (optionally) publications.
+ * It has no write surface at all — the client refuses mutation documents — and never touches orders,
+ * customers or fulfilments. It never computes cycles, charges, one-times or actions.
  */
 import { ShopifyAdminClient, type ShopifyClientOptions } from "./client";
+import { createTokenProvider } from "./auth";
 import { getStore, probeCapabilities } from "./store";
-import { findOnlineStorePublication, listPublications, publishProduct } from "./publications";
-import { createMarkerProduct, getProduct, getProductByVariantId, quoteSearchValue, searchProducts, updateMarkerProduct } from "./products";
-import type { MarkerProductSpec, ShopifyCredentials, ShopifyProductStatus } from "./types";
+import { findOnlineStorePublication, listPublications } from "./publications";
+import { buildSearchQuery, getProduct, getProductByVariantId, searchProducts } from "./products";
+import type { ShopifyCredentials, ShopifyTokenCacheStore } from "./types";
 
 export type ShopifyConnector = ReturnType<typeof createShopifyConnector>;
 
@@ -21,29 +22,32 @@ export function createShopifyConnector(client: ShopifyAdminClient, defaults: { o
     client,
     shopDomain: client.shop,
     apiVersion: client.version,
+    authMode: client.auth.authMode,
+    tokenInfo: () => client.auth.describe(),
     getStore: () => getStore(client),
-    probeCapabilities: () => probeCapabilities(client),
+    probeCapabilities: (opts?: { tokenScopes?: string[] }) => probeCapabilities(client, opts),
     listPublications: () => listPublications(client),
     findOnlineStorePublication: () => findOnlineStorePublication(client),
+    /** raw Shopify search query (e.g. `sku:"X"`, `title:*cup*`) */
     searchProducts: (query: string, first?: number) => searchProducts(client, query, { first, onlineStorePublicationId: pub }),
-    searchBySku: (sku: string) => searchProducts(client, `sku:${quoteSearchValue(sku)}`, { first: 10, onlineStorePublicationId: pub }),
-    searchByTitle: (title: string) => searchProducts(client, `title:${quoteSearchValue(title)}`, { first: 10, onlineStorePublicationId: pub }),
+    /** operator search-box text → products */
+    search: (term: string, first?: number) => {
+      const q = buildSearchQuery(term);
+      return q ? searchProducts(client, q, { first, onlineStorePublicationId: pub }) : Promise.resolve([]);
+    },
     getProduct: (productId: string) => getProduct(client, productId, { onlineStorePublicationId: pub }),
     getProductByVariantId: (variantId: string) => getProductByVariantId(client, variantId, { onlineStorePublicationId: pub }),
-    createMarkerProduct: (spec: MarkerProductSpec) => createMarkerProduct(client, spec, pub),
-    updateMarkerProduct: (productId: string, variantId: string, changes: { title?: string; status?: ShopifyProductStatus; sku?: string; price?: string; tags?: string[]; productType?: string }) => updateMarkerProduct(client, productId, variantId, changes, pub),
-    publishToOnlineStore: (productId: string) => {
-      if (!pub) throw new Error("Online Store publication id unknown");
-      return publishProduct(client, productId, pub);
-    },
   };
 }
 
-export function createShopifyConnectorFromCredentials(credentials: ShopifyCredentials, opts: Omit<ShopifyClientOptions, "credentials"> & { onlineStorePublicationId?: string | null } = {}) {
-  const { onlineStorePublicationId, ...clientOpts } = opts;
-  return createShopifyConnector(new ShopifyAdminClient({ credentials, ...clientOpts }), { onlineStorePublicationId });
+export function createShopifyConnectorFromCredentials(credentials: ShopifyCredentials, opts: Omit<ShopifyClientOptions, "shopDomain" | "tokenProvider"> & { onlineStorePublicationId?: string | null; tokenCache?: ShopifyTokenCacheStore } = {}) {
+  const { onlineStorePublicationId, tokenCache, ...clientOpts } = opts;
+  const tokenProvider = createTokenProvider(credentials, { cache: tokenCache, fetchImpl: clientOpts.fetchImpl, log: clientOpts.log });
+  return createShopifyConnector(new ShopifyAdminClient({ shopDomain: credentials.shopDomain, tokenProvider, ...clientOpts }), { onlineStorePublicationId });
 }
 
-export { ShopifyAdminClient, SHOPIFY_API_VERSION, MUTATION_ALLOWLIST, normalizeShopDomain } from "./client";
+export { ShopifyAdminClient, SHOPIFY_API_VERSION, isMutationDocument, gidToId } from "./client";
+export { normalizeShopDomain, exchangeClientCredentials, createTokenProvider, ClientCredentialsTokenProvider, StaticTokenProvider, TOKEN_REFRESH_MARGIN_MS } from "./auth";
+export { buildSearchQuery, quoteSearchValue } from "./products";
 export { ShopifyError, isShopifyError } from "./errors";
 export * from "./types";

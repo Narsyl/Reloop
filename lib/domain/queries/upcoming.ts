@@ -8,7 +8,7 @@ type Ctx = Pick<OrgContext, "organizationId">;
 export type UpcomingFilters = {
   status?: ActionStatus | "ALL" | "LIVE";
   programId?: string;
-  markerId?: string;
+  rewardItemId?: string;
   integrationId?: string;
   from?: string; // YYYY-MM-DD
   to?: string; // YYYY-MM-DD
@@ -17,6 +17,7 @@ export type UpcomingFilters = {
 const actionInclude = {
   subscription: { include: { customer: { select: { firstName: true, lastName: true, email: true } } } },
   journey: { include: { program: { select: { id: true, name: true } } } },
+  rewardItem: { select: { id: true, name: true } },
   fulfillmentMarker: { select: { id: true, name: true, title: true, sku: true, externalVariantId: true, placeholder: true } },
   rule: { select: { id: true, name: true, eligibilityScope: true, status: true, cycleNumber: true } },
   milestone: { select: { id: true, cycleNumber: true, executionMode: true, eligibilityScope: true, rewardItem: { select: { id: true, name: true } }, schedule: { select: { id: true, name: true, status: true } } } },
@@ -35,7 +36,7 @@ export async function listUpcomingActions(ctx: Ctx, filters: UpcomingFilters, no
     where.status = filters.status;
   }
   if (filters.programId) where.journey = { programId: filters.programId };
-  if (filters.markerId) where.fulfillmentMarkerId = filters.markerId;
+  if (filters.rewardItemId) where.rewardItemId = filters.rewardItemId;
   if (filters.integrationId) where.integrationId = filters.integrationId;
   if (filters.from || filters.to) {
     where.targetChargeDate = { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) };
@@ -100,6 +101,6 @@ export async function listIntegrationsForAutomation(ctx: Ctx) {
   }));
 }
 
-export async function listMarkersForFilter(ctx: Ctx) {
-  return dbFor(ctx).fulfillmentMarker.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
+export async function listRewardItemsForFilter(ctx: Ctx) {
+  return dbFor(ctx).rewardItem.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
 }

@@ -23,6 +23,7 @@ export async function getIntegrationDetail(ctx: Ctx, integrationId: string) {
       lastErrorMessage: true,
       createdAt: true,
       pairedIntegrationId: true,
+      accessTokenExpiresAt: true,
       pairedIntegration: { select: { id: true, displayName: true, provider: true } },
     },
   });

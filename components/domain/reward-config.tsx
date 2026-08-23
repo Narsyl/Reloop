@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ConfirmationDialog } from "@/components/domain/confirmation-dialog";
-import { assignScheduleToProgram, bindMarker, deleteMilestone, migrateLegacyRule, saveMilestone, saveRewardItem, saveRewardSchedule, setScheduleStatus } from "@/lib/domain/rewards/actions";
+import { assignScheduleToProgram, deleteMilestone, migrateLegacyRule, saveMilestone, saveRewardItem, saveRewardSchedule, setScheduleStatus } from "@/lib/domain/rewards/actions";
 import { eligibilityScopeLabel } from "@/lib/status";
 
 const selectCls = "h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
@@ -133,7 +133,7 @@ export function ScheduleStatusControls({ id, name, status, programs }: { id: str
         <ConfirmationDialog
           trigger={<Button size="sm">Mark ready</Button>}
           title={`Mark "${name}" ready?`}
-          impact={`Ready means the configuration is signed off: the dry-run planner will plan this schedule's renewal milestones for ${programs} programme(s) — only where a real (non-placeholder) marker is bound. Nothing is written to the subscription platform in this phase; initial-checkout milestones are never planned.`}
+          impact={`Ready means the configuration is signed off: the dry-run planner will plan this schedule's renewal milestones for ${programs} programme(s) — only where the milestone's reward item is bound to a verified Shopify variant for the programme's store. Nothing is written to the subscription platform in this phase; initial-checkout milestones are never planned.`}
           confirmLabel="Mark ready"
           onConfirm={change("READY")}
           successMessage="Schedule is ready"
@@ -240,7 +240,7 @@ export function DeleteMilestoneButton({ id, scheduleId, label }: { id: string; s
     <ConfirmationDialog
       trigger={<Button size="xs" variant="ghost">Remove</Button>}
       title={`Remove ${label}?`}
-      impact="Only possible while no action was planned from it; its marker bindings are removed too. Prefer deactivating if the milestone ever applied."
+      impact="Only possible while no action was planned from it. Prefer deactivating if the milestone ever applied."
       confirmLabel="Remove"
       destructive
       onConfirm={async () => {
@@ -295,34 +295,7 @@ export function UnassignProgramButton({ programId, programName }: { programId: s
   );
 }
 
-// ── Marker binding ─────────────────────────────────────────────────────────
-
-export function BindingSelect({ scheduleId, programId, milestoneId, current, markers, disabled }: { scheduleId: string; programId: string; milestoneId: string; current: string | null; markers: { id: string; name: string; placeholder: boolean; integration: string }[]; disabled?: boolean }) {
-  const router = useRouter();
-  const [pending, start] = useTransition();
-  return (
-    <select
-      className={selectCls + " min-w-44"}
-      value={current ?? ""}
-      disabled={disabled || pending}
-      onChange={(e) => {
-        const value = e.target.value || null;
-        start(async () => {
-          const r = await bindMarker({ scheduleId, programId, milestoneId, fulfillmentMarkerId: value });
-          if (!r.ok) {
-            toast.error(r.error);
-            return;
-          }
-          toast.success(value ? "Marker bound" : "Marker unbound");
-          router.refresh();
-        });
-      }}
-    >
-      <option value="">— no marker bound —</option>
-      {markers.map((m) => <option key={m.id} value={m.id}>{m.name}{m.placeholder ? " (placeholder)" : ""} · {m.integration}</option>)}
-    </select>
-  );
-}
+// ── Legacy rule migration ──────────────────────────────────────────────────
 
 export function MigrateRuleButton({ ruleId, milestones }: { ruleId: string; milestones: { id: string; label: string }[] }) {
   const router = useRouter();

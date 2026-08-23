@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Gift } from "lucide-react";
 import { hasRole, requireOrg } from "@/lib/auth/tenancy";
 import { listProgramsWithSchedules, listRewardItems, listRewardSchedules } from "@/lib/domain/rewards/queries";
+import { listRewardBindings } from "@/lib/domain/rewards/bindings";
+import { RewardBindingsTable } from "@/components/domain/reward-bindings";
 import { rewardScheduleStatus } from "@/lib/status";
 import { pluralize } from "@/lib/format";
 import { PageHeader, SectionHeader } from "@/components/layout/page-header";
@@ -14,7 +16,7 @@ export const metadata = { title: "Rewards" };
 
 export default async function RewardsPage() {
   const ctx = await requireOrg();
-  const [{ schedules, archived }, items, programs] = await Promise.all([listRewardSchedules(ctx), listRewardItems(ctx), listProgramsWithSchedules(ctx)]);
+  const [{ schedules, archived }, items, programs, bindings] = await Promise.all([listRewardSchedules(ctx), listRewardItems(ctx), listProgramsWithSchedules(ctx), listRewardBindings(ctx)]);
   const canManage = hasRole(ctx, "ADMIN");
   const unassigned = programs.filter((p) => p.active && !p.rewardSchedule);
 
@@ -22,7 +24,7 @@ export default async function RewardsPage() {
     <>
       <PageHeader
         title="Rewards"
-        description="Reward schedules are reusable milestone configuration (delivery number → reward item). Programmes share schedules but keep their own lifecycle and their own customer-programme reward history. Each programme binds its own fulfilment marker per milestone."
+        description="Reward schedules are reusable milestone configuration (delivery number → reward item). Programmes share schedules but keep their own lifecycle and their own customer-programme reward history. Each physical reward item binds once to its existing Shopify variant — every milestone that awards it resolves to that variant."
         actions={canManage ? <ScheduleDialog /> : undefined}
       />
 
@@ -58,7 +60,16 @@ export default async function RewardsPage() {
       </section>
 
       <section className="mt-8 space-y-3">
-        <SectionHeader title="Reward items" description="What physically happens — organisation-owned, reusable across schedules. A fulfilment marker also names its reward item so bindings are verifiable." actions={canManage ? <RewardItemDialog /> : undefined} />
+        <SectionHeader
+          title="Reward fulfilment products"
+          description={bindings.shopifyIntegrations.length === 0 ? "Connect Shopify (read-only) under Settings → Integrations to bind each reward to its existing product — no products are created." : `Each reward binds to ONE existing Shopify variant on ${bindings.shopifyIntegrations.map((s) => s.shopDomain).join(", ")}; all programmes and schedules reuse it. Shopify is read-only — nothing is created or edited.`}
+          actions={bindings.shopifyIntegrations.length === 0 ? <Button size="sm" variant="outline" render={<Link href="/settings/integrations" />}>Connect Shopify</Button> : undefined}
+        />
+        <RewardBindingsTable rows={bindings.rows} canManage={canManage} />
+      </section>
+
+      <section className="mt-8 space-y-3">
+        <SectionHeader title="Reward items" description="What physically happens — organisation-owned, reusable across schedules. Bind each to its Shopify product above." actions={canManage ? <RewardItemDialog /> : undefined} />
         {items.length === 0 ? (
           <EmptyState compact title="No reward items yet" description="Create the rewards your schedules refer to (e.g. Whisk, Cup, Spoon)." />
         ) : (
@@ -67,7 +78,7 @@ export default async function RewardsPage() {
               <li key={i.id} className="flex items-start justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
                 <div className="min-w-0">
                   <div className="text-sm font-medium">{i.name}{i.active ? "" : <span className="ml-2 text-[11px] text-muted-foreground">inactive</span>}</div>
-                  <div className="text-xs text-muted-foreground">{i.operationalDescription ?? "—"} · used by {i._count.milestones} milestone(s), {i._count.markers} marker(s)</div>
+                  <div className="text-xs text-muted-foreground">{i.operationalDescription ?? "—"} · used by {i._count.milestones} milestone(s) · {i._count.externalBindings} binding(s)</div>
                 </div>
                 {canManage ? <RewardItemDialog initial={{ id: i.id, name: i.name, description: i.description ?? "", operationalDescription: i.operationalDescription ?? "", active: i.active }} trigger={<Button size="xs" variant="ghost">Edit</Button>} /> : null}
               </li>

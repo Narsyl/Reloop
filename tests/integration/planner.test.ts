@@ -5,8 +5,11 @@
  * "sync → recalc → planner stays idempotent" case is genuine, and lifecycle counts are fingerprinted
  * before/after every planner run.
  *
- *   Schedule A (shared by programmes MM and Chaga): delivery 2 → Whisk, delivery 3 → Cup (CUSTOMER_PROGRAM)
+ *   Schedule A (shared by programmes MM and Chaga): delivery 2 → Whisk, delivery 3 → Spoon (CUSTOMER_PROGRAM)
  *   Schedule B (programme EE):                      delivery 1 → Whisk (INITIAL_CHECKOUT), 2 → Cup
+ *
+ * Revised 4c: physical reward items bind to existing Shopify variants (RewardItemExternalBinding on the
+ * store's paired SHOPIFY integration). Whisk and Cup are bound; Spoon is left unbound (REWARD_UNBOUND).
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db/prisma";
@@ -16,7 +19,8 @@ import { dryRunAction } from "@/lib/domain/actions/dry-run";
 import { setIntegrationAutomationMode } from "@/lib/domain/actions/mode";
 import { analyzeMilestoneImpact } from "@/lib/domain/rules/impact";
 import { resolveProgramRewards } from "@/lib/domain/rewards/resolver";
-import { assignProgramSchedule, bindProgramMarker, setRewardScheduleStatus, upsertMilestone, upsertRewardItem, upsertRewardSchedule } from "@/lib/domain/rewards/core";
+import { assignProgramSchedule, setRewardScheduleStatus, upsertMilestone, upsertRewardItem, upsertRewardSchedule } from "@/lib/domain/rewards/core";
+import { unbindRewardItem } from "@/lib/domain/rewards/bindings";
 import { localMidnightUtc } from "@/lib/domain/time";
 import type { ConnectorOnetime, ConnectorSubscription } from "@/lib/integrations/types";
 
@@ -32,15 +36,13 @@ let cup = "";
 let schedA = "";
 let schedB = "";
 let msA2 = "";
-let msA3 = "";
+
 let msB1 = "";
 let msB2 = "";
-let markerMM2 = "";
-let markerMM2alt = "";
-let markerB2 = "";
-let markerEE2 = "";
-let markerPlaceholder = "";
-let markerCupOnly = "";
+let spoon = "";
+let shopifyId = "";
+let bindingWhisk = "";
+let bindingCup = "";
 const subIds: Record<string, string> = {};
 const NOW = new Date("2026-08-23T15:00:00Z");
 
@@ -104,30 +106,27 @@ beforeAll(async () => {
 
   whisk = ok(await upsertRewardItem(ctx, { name: "Whisk", operationalDescription: "Include whisk" })).id;
   cup = ok(await upsertRewardItem(ctx, { name: "Cup", operationalDescription: "Include cup" })).id;
-  const mk = async (name: string, variant: string, rewardItemId: string | null, placeholder = false) => {
-    const prod = await prisma.product.create({ data: { organizationId: org.id, integrationId, externalProductId: `mk-${variant}`, title: name, type: "FULFILMENT_MARKER" } });
-    const v = await prisma.productVariant.create({ data: { organizationId: org.id, productId: prod.id, externalVariantId: variant, title: name, sku: `SKU-${variant}`, price: "0.00" } });
-    return (await prisma.fulfillmentMarker.create({ data: { organizationId: org.id, integrationId, name, variantId: v.id, externalVariantId: variant, externalProductId: `mk-${variant}`, title: name, sku: `SKU-${variant}`, source: "MANUAL", placeholder, rewardItemId } })).id;
-  };
-  markerMM2 = await mk("Morning Magic 2", "77001", whisk);
-  markerMM2alt = await mk("Morning Magic 2 (alt)", "77002", whisk);
-  markerB2 = await mk("Chaga 2", "77003", whisk);
-  markerEE2 = await mk("Evening Elixir 2", "77004", cup);
-  markerPlaceholder = await mk("PLACEHOLDER", "77005", whisk, true);
-  markerCupOnly = await mk("Cup only", "77006", cup);
+  spoon = ok(await upsertRewardItem(ctx, { name: "Spoon", operationalDescription: "Include spoon" })).id;
+  // read-only Shopify catalogue paired with the Recharge store; reward items bind to EXISTING variants
+  shopifyId = (await prisma.integration.create({ data: { organizationId: org.id, provider: "SHOPIFY", externalStoreId: `shp-${run}.myshopify.com`, displayName: "Fake Shopify", encryptedCredentials: "x", automationMode: "OFF", pairedIntegrationId: integrationId } })).id;
+  const bind = async (rewardItemId: string, variant: string, title: string, sku: string) =>
+    (
+      await prisma.rewardItemExternalBinding.create({
+        data: { organizationId: org.id, rewardItemId, integrationId: shopifyId, provider: "SHOPIFY", externalProductId: `p-${variant}`, externalVariantId: variant, externalTitle: title, externalSku: sku, externalPrice: "6.00", externalStatus: "ACTIVE", requiresShipping: true, inventoryTracked: false, lastVerifiedAt: new Date(), verificationJson: { checkedAt: NOW.toISOString(), issues: ["PRICED"] } },
+      })
+    ).id;
+  bindingWhisk = await bind(whisk, "77001", "Bamboo Whisk", "WHISK-1");
+  bindingCup = await bind(cup, "77004", "Ceramic Cup", "CUP-1");
 
   schedA = ok(await upsertRewardSchedule(ctx, { name: "Schedule A" })).id;
   msA2 = ok(await upsertMilestone(ctx, { scheduleId: schedA, cycleNumber: 2, rewardItemId: whisk, eligibilityScope: "CUSTOMER_PROGRAM" })).id;
-  msA3 = ok(await upsertMilestone(ctx, { scheduleId: schedA, cycleNumber: 3, rewardItemId: cup, eligibilityScope: "CUSTOMER_PROGRAM" })).id;
+  ok(await upsertMilestone(ctx, { scheduleId: schedA, cycleNumber: 3, rewardItemId: spoon, eligibilityScope: "CUSTOMER_PROGRAM" }));
   schedB = ok(await upsertRewardSchedule(ctx, { name: "Schedule B" })).id;
   msB1 = ok(await upsertMilestone(ctx, { scheduleId: schedB, cycleNumber: 1, rewardItemId: whisk, eligibilityScope: "CUSTOMER_PROGRAM" })).id;
   msB2 = ok(await upsertMilestone(ctx, { scheduleId: schedB, cycleNumber: 2, rewardItemId: cup, eligibilityScope: "CUSTOMER_PROGRAM" })).id;
   ok(await assignProgramSchedule(ctx, { programId: progMM, scheduleId: schedA }));
   ok(await assignProgramSchedule(ctx, { programId: progB, scheduleId: schedA }));
   ok(await assignProgramSchedule(ctx, { programId: progEE, scheduleId: schedB }));
-  ok(await bindProgramMarker(ctx, { programId: progMM, milestoneId: msA2, fulfillmentMarkerId: markerMM2 }));
-  ok(await bindProgramMarker(ctx, { programId: progB, milestoneId: msA2, fulfillmentMarkerId: markerB2 }));
-  ok(await bindProgramMarker(ctx, { programId: progEE, milestoneId: msB2, fulfillmentMarkerId: markerEE2 }));
   ok(await setRewardScheduleStatus(ctx, schedA, "READY"));
   ok(await setRewardScheduleStatus(ctx, schedB, "READY"));
 
@@ -170,15 +169,20 @@ describe("effective milestone resolver", () => {
   it("reports readiness per programme and milestone; INITIAL_CHECKOUT is never plannable", async () => {
     const mm = await resolveProgramRewards(ctx, progMM);
     expect(mm.schedule?.name).toBe("Schedule A");
-    expect(mm.milestones.map((m) => [m.cycleNumber, m.readiness])).toEqual([[2, "READY"], [3, "BINDING_MISSING"]]);
+    expect(mm.milestones.map((m) => [m.cycleNumber, m.readiness])).toEqual([[2, "READY"], [3, "REWARD_UNBOUND"]]);
+    expect(mm.store.rechargeIntegrationId).toBe(integrationId);
+    expect(mm.store.shopifyIntegrationId).toBe(shopifyId);
+    expect(mm.milestones[0].binding?.externalVariantId).toBe("77001");
     const eeView = await resolveProgramRewards(ctx, progEE);
     expect(eeView.milestones.map((m) => [m.cycleNumber, m.executionMode, m.readiness])).toEqual([[1, "INITIAL_CHECKOUT", "INITIAL_CHECKOUT_NOT_PLANNED"], [2, "UPCOMING_RENEWAL", "READY"]]);
   });
-  it("refuses bindings whose marker represents a different reward item or whose programme is on another schedule", async () => {
-    expect((await bindProgramMarker(ctx, { programId: progMM, milestoneId: msA3, fulfillmentMarkerId: markerB2 })).ok).toBe(false); // A3 = cup, marker = whisk
-    expect((await bindProgramMarker(ctx, { programId: progB, milestoneId: msA3, fulfillmentMarkerId: markerCupOnly })).ok).toBe(true);
-    ok(await bindProgramMarker(ctx, { programId: progB, milestoneId: msA3, fulfillmentMarkerId: null }));
-    expect((await bindProgramMarker(ctx, { programId: progEE, milestoneId: msA2, fulfillmentMarkerId: markerEE2 })).ok).toBe(false); // EE is not on Schedule A
+  it("one variant represents one reward, one reward has one binding per store — enforced by the database", async () => {
+    // same variant for a second reward item → refused
+    await expect(prisma.rewardItemExternalBinding.create({ data: { organizationId: org.id, rewardItemId: spoon, integrationId: shopifyId, provider: "SHOPIFY", externalProductId: "p-77001", externalVariantId: "77001", externalTitle: "Bamboo Whisk" } })).rejects.toThrow(/externalVariantId|Unique constraint/);
+    // second binding for the same reward on the same store → refused
+    await expect(prisma.rewardItemExternalBinding.create({ data: { organizationId: org.id, rewardItemId: whisk, integrationId: shopifyId, provider: "SHOPIFY", externalProductId: "p-88888", externalVariantId: "88888", externalTitle: "Other Whisk" } })).rejects.toThrow(/rewardItemId|Unique constraint/);
+    // provider must match the integration; reward item must belong to the same organisation (DB triggers)
+    await expect(prisma.rewardItemExternalBinding.create({ data: { organizationId: org.id, rewardItemId: spoon, integrationId, provider: "SHOPIFY", externalProductId: "p", externalVariantId: "99991", externalTitle: "X" } })).rejects.toThrow();
   });
 });
 
@@ -196,7 +200,7 @@ describe("planner (schedules)", () => {
     const live = await liveActions();
     expect(live.map((a) => a.subscription.externalSubscriptionId).sort()).toEqual(["BO-b", "BO-mm", "EE-1", "MV-1", "N-1"]);
     expect(s.planned).toBe(5);
-    expect(s.milestonesSkipped.map((m) => `${m.programName}:${m.cycleNumber}:${m.reason}`).sort()).toEqual(["Chaga:3:BINDING_MISSING", "Evening Elixir:1:INITIAL_CHECKOUT_NOT_PLANNED", "Morning Magic Powder:3:BINDING_MISSING"]);
+    expect(s.milestonesSkipped.map((m) => `${m.programName}:${m.cycleNumber}:${m.reason}`).sort()).toEqual(["Chaga:3:REWARD_UNBOUND", "Evening Elixir:1:INITIAL_CHECKOUT_NOT_PLANNED", "Morning Magic Powder:3:REWARD_UNBOUND"]);
     const mmPlanned = s.decisions.filter((d) => d.milestoneId === msA2 && d.programId === progMM && d.outcome === "PLANNED").map((d) => d.externalSubscriptionId).sort();
     expect(mmPlanned).toEqual(impactNow);
     const reason = (ext: string) => s.decisions.find((d) => d.milestoneId === msA2 && d.programId === progMM && d.externalSubscriptionId === ext)?.reason;
@@ -225,8 +229,9 @@ describe("planner (schedules)", () => {
     expect(a.rewardScheduleMilestoneId).toBe(msA2);
     expect(a.programId).toBe(progMM);
     expect(a.ruleId).toBeNull();
-    expect(a.fulfillmentMarkerId).toBe(markerMM2);
-    expect(a.liveKey).toBe(`${a.journeyId}:2:${markerMM2}`);
+    expect(a.fulfillmentMarkerId).toBeNull();
+    expect(a.rewardItemId).toBe(whisk);
+    expect(a.liveKey).toBe(`${a.journeyId}:2:${whisk}`);
     expect(a.ownerKey).toMatch(/^c:.+:2:/);
     const bo = live.filter((x) => x.subscription.externalSubscriptionId.startsWith("BO-"));
     expect(bo.length).toBe(2);
@@ -282,23 +287,37 @@ describe("planner (schedules)", () => {
     expect((await prisma.automationAction.findMany({ where: { subscriptionId: subIds["N-1"], status: "PLANNED" } })).length).toBe(1);
   }, 180_000);
 
-  it("supersedes when the programme's marker binding changes; a schedule swap keeps the physical keys (no duplicate)", async () => {
-    ok(await bindProgramMarker(ctx, { programId: progMM, milestoneId: msA2, fulfillmentMarkerId: markerMM2alt }));
+  it("re-binding a reward to another variant does NOT duplicate or supersede (same reward identity); changing the milestone's reward supersedes; a schedule swap keeps the physical keys", async () => {
+    // 1. rebind Whisk → another existing variant: the actions are the same physical reward, nothing changes
+    await prisma.rewardItemExternalBinding.update({ where: { id: bindingWhisk }, data: { externalVariantId: "77002", externalTitle: "Bamboo Whisk v2" } });
     let s = await plan();
+    expect(s.planned).toBe(0);
+    expect(s.superseded).toBe(0);
+    expect(s.cancelled).toBe(0);
+    await prisma.rewardItemExternalBinding.update({ where: { id: bindingWhisk }, data: { externalVariantId: "77001", externalTitle: "Bamboo Whisk" } });
+
+    // 2. the milestone now awards a different (bound) reward → old actions SUPERSEDED by the new reward's actions
+    const spoonBinding = await prisma.rewardItemExternalBinding.create({ data: { organizationId: org.id, rewardItemId: spoon, integrationId: shopifyId, provider: "SHOPIFY", externalProductId: "p-77007", externalVariantId: "77007", externalTitle: "Wooden Spoon", externalStatus: "ACTIVE", requiresShipping: true, verificationJson: { issues: [] } } });
+    ok(await upsertMilestone(ctx, { id: msA2, scheduleId: schedA, cycleNumber: 2, rewardItemId: spoon, eligibilityScope: "CUSTOMER_PROGRAM" }));
+    s = await plan();
     expect(s.superseded).toBeGreaterThanOrEqual(1);
     const n1 = await prisma.automationAction.findMany({ where: { subscriptionId: subIds["N-1"] }, orderBy: { createdAt: "asc" } });
     const sup = n1.find((a) => a.status === "SUPERSEDED")!;
     const live = n1.find((a) => a.status === "PLANNED")!;
     expect(sup.supersededById).toBe(live.id);
-    expect(live.fulfillmentMarkerId).toBe(markerMM2alt);
-    ok(await bindProgramMarker(ctx, { programId: progMM, milestoneId: msA2, fulfillmentMarkerId: markerMM2 }));
+    expect(sup.cancelReason).toMatch(/^REWARD_CHANGED/);
+    expect(live.rewardItemId).toBe(spoon);
+    // revert to Whisk and settle
+    ok(await upsertMilestone(ctx, { id: msA2, scheduleId: schedA, cycleNumber: 2, rewardItemId: whisk, eligibilityScope: "CUSTOMER_PROGRAM" }));
+    await plan();
+    await prisma.rewardItemExternalBinding.delete({ where: { id: spoonBinding.id } });
     await plan();
 
+    // 3. schedule swap: another READY schedule with the same delivery-2 → Whisk milestone keeps the physical keys
     const schedA2 = ok(await upsertRewardSchedule(ctx, { name: "Schedule A prime" })).id;
-    const msA2b = ok(await upsertMilestone(ctx, { scheduleId: schedA2, cycleNumber: 2, rewardItemId: whisk, eligibilityScope: "CUSTOMER_PROGRAM" })).id;
+    ok(await upsertMilestone(ctx, { scheduleId: schedA2, cycleNumber: 2, rewardItemId: whisk, eligibilityScope: "CUSTOMER_PROGRAM" }));
     ok(await setRewardScheduleStatus(ctx, schedA2, "READY"));
     ok(await assignProgramSchedule(ctx, { programId: progMM, scheduleId: schedA2 }));
-    ok(await bindProgramMarker(ctx, { programId: progMM, milestoneId: msA2b, fulfillmentMarkerId: markerMM2 }));
     const before = await prisma.automationAction.count({ where: { programId: progMM, status: "PLANNED" } });
     s = await plan();
     expect(s.planned).toBe(0);
@@ -307,7 +326,7 @@ describe("planner (schedules)", () => {
     await plan();
   }, 240_000);
 
-  it("schedule back to DRAFT cancels with SCHEDULE_NOT_READY; automation OFF does nothing; LIVE refused; placeholder binding never planned", async () => {
+  it("schedule back to DRAFT cancels with SCHEDULE_NOT_READY; automation OFF does nothing; LIVE refused; an unbound reward is never planned", async () => {
     ok(await setRewardScheduleStatus(ctx, schedB, "DRAFT"));
     let s = await plan();
     expect(s.cancelledActions.some((c) => c.reason === "SCHEDULE_NOT_READY")).toBe(true);
@@ -324,11 +343,13 @@ describe("planner (schedules)", () => {
     expect((await setIntegrationAutomationMode(ctx, integrationId, "LIVE")).ok).toBe(false);
     expect((await setIntegrationAutomationMode(ctx, integrationId, "DRY_RUN")).ok).toBe(true);
 
-    ok(await bindProgramMarker(ctx, { programId: progB, milestoneId: msA2, fulfillmentMarkerId: markerPlaceholder }));
+    // unbinding Cup removes EE's only plannable milestone → skipped REWARD_UNBOUND, planned actions cancelled
+    ok(await unbindRewardItem({ organizationId: org.id, userId: null }, { bindingId: bindingCup }));
     s = await plan();
-    expect(s.milestonesSkipped.some((m) => m.programId === progB && m.reason === "MARKER_PLACEHOLDER")).toBe(true);
-    expect(s.cancelledActions.some((c) => c.reason === "MARKER_UNAVAILABLE")).toBe(true);
-    ok(await bindProgramMarker(ctx, { programId: progB, milestoneId: msA2, fulfillmentMarkerId: markerB2 }));
+    expect(s.milestonesSkipped.some((m) => m.programId === progEE && m.reason === "BINDING_INACTIVE")).toBe(true);
+    expect(s.cancelledActions.some((c) => c.reason === "REWARD_UNBOUND")).toBe(true);
+    expect(await prisma.automationAction.count({ where: { programId: progEE, status: "PLANNED" } })).toBe(0);
+    await prisma.rewardItemExternalBinding.update({ where: { id: bindingCup }, data: { active: true } });
     s = await plan();
     expect(s.planned).toBeGreaterThanOrEqual(1);
   }, 240_000);
@@ -361,16 +382,17 @@ describe("dry run", () => {
   const extSub = (over: Partial<ConnectorSubscription> = {}): ConnectorSubscription => ({ externalSubscriptionId: "EE-1", externalCustomerId: "c-ee", externalAddressId: "addr-EE-1", status: "active", providerStatus: "active", externalProductId: EE_PRODUCT, externalVariantId: EE_VARIANT, productTitle: "Evening Elixir", variantTitle: null, sku: null, quantity: 1, price: "34.00", intervalUnit: "day", intervalFrequency: 30, nextChargeDate: "2026-09-21", externalCreatedAt: null, externalUpdatedAt: null, cancelledAt: null, providerData: null, ...over });
   const fake = (sub: ConnectorSubscription, onetimes: ConnectorOnetime[] = []) => ({ getSubscription: async () => sub, listOnetimes: async function* () { yield { items: onetimes }; } });
 
-  it("produces the exact intended one-time payload, names schedule · milestone · reward · marker, and wouldExecute=YES when everything lines up", async () => {
+  it("produces the exact intended one-time payload (the reward's REAL Shopify variant), and wouldExecute=YES when everything lines up", async () => {
     const a = (await liveActions()).find((x) => x.subscription.externalSubscriptionId === "EE-1")!;
     const r = await dryRunAction(ctx, a.id, { now: NOW, connector: fake(extSub()) });
     expect(r.wouldExecute).toBe(true);
     expect(r.operation).toBe("CREATE_ONETIME");
     expect(r.milestone).toMatchObject({ scheduleName: "Schedule B", cycleNumber: 2, executionMode: "UPCOMING_RENEWAL", eligibilityScope: "CUSTOMER_PROGRAM", readiness: "READY" });
     expect(r.milestone?.rewardItem.name).toBe("Cup");
-    expect(r.marker.name).toBe("Evening Elixir 2");
+    expect(r.target).toMatchObject({ kind: "REWARD_BINDING", externalVariantId: "77004", title: "Ceramic Cup", sku: "CUP-1", rewardItem: { name: "Cup" } });
     expect(r.intendedOperation).toMatchObject({ provider: "RECHARGE", method: "POST", path: "/onetimes", sent: false });
-    expect(r.intendedOperation.body).toMatchObject({ address_id: "addr-EE-1", next_charge_scheduled_at: "2026-09-21", external_variant_id: { ecommerce: "77004" }, quantity: 1, price: "0.00", product_title: "Evening Elixir 2" });
+    expect(r.intendedOperation.body).toMatchObject({ address_id: "addr-EE-1", next_charge_scheduled_at: "2026-09-21", external_variant_id: { ecommerce: "77004" }, external_product_id: { ecommerce: "p-77004" }, quantity: 1, price: "0.00", product_title: "Ceramic Cup" });
+    expect((r.intendedOperation.body.properties as { name: string; value: string }[]).some((p) => p.name === "_subscription_ops_reward" && p.value === "Cup")).toBe(true);
     const stored = await prisma.automationAction.findUniqueOrThrow({ where: { id: a.id } });
     expect(stored.wouldExecute).toBe(true);
   }, 120_000);

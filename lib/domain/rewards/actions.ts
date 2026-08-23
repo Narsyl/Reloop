@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { ForbiddenError, requireRole } from "@/lib/auth/tenancy";
 import type { ActionResult } from "@/lib/domain/organizations/actions";
-import { assignProgramSchedule, bindProgramMarker, migrateRuleToMilestone, removeMilestone, setRewardScheduleStatus, upsertMilestone, upsertRewardItem, upsertRewardSchedule } from "./core";
+import { assignProgramSchedule, migrateRuleToMilestone, removeMilestone, setRewardScheduleStatus, upsertMilestone, upsertRewardItem, upsertRewardSchedule } from "./core";
+import { bindRewardItem, searchCatalog, unbindRewardItem, verifyRewardBinding, type BindingIssue } from "./bindings";
+import type { ShopifyProductSummary } from "@/lib/integrations/shopify";
 
 async function admin() {
   try {
@@ -86,14 +88,70 @@ export async function assignScheduleToProgram(input: unknown): Promise<ActionRes
   return r;
 }
 
-export async function bindMarker(input: unknown): Promise<ActionResult<{ bindingId: string | null }>> {
+async function operator() {
+  try {
+    return await requireRole("OPERATOR");
+  } catch (e) {
+    if (e instanceof ForbiddenError) return null;
+    throw e;
+  }
+}
+
+/** Read-only Shopify catalogue search for the bind dialog. */
+export async function searchShopifyCatalog(input: unknown): Promise<ActionResult<ShopifyProductSummary[]>> {
+  const ctx = await operator();
+  if (!ctx) return { ok: false, error: "You need the Operator role or above." };
+  const parsed = z.object({ shopifyIntegrationId: z.string().min(1), term: z.string().trim().min(1).max(120) }).safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Enter a search term." };
+  try {
+    return { ok: true, data: await searchCatalog(ctx, parsed.data.shopifyIntegrationId, parsed.data.term) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Bind a reward item to an existing Shopify variant (read-only on Shopify; stores canonical ids + snapshot). */
+export async function bindRewardToShopifyVariant(input: unknown): Promise<ActionResult<{ bindingId: string; issues: BindingIssue[]; title: string; variantId: string }>> {
   const ctx = await admin();
   if (!ctx) return DENIED;
-  const parsed = z.object({ programId: z.string().min(1), milestoneId: z.string().min(1), fulfillmentMarkerId: z.string().min(1).nullable(), scheduleId: z.string().min(1) }).safeParse(input);
+  const parsed = z.object({ rewardItemId: z.string().min(1), shopifyIntegrationId: z.string().min(1), variantId: z.string().trim().min(1) }).safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const r = await bindProgramMarker(ctx, parsed.data);
-  if (r.ok) revalidateRewards(parsed.data.scheduleId);
+  try {
+    const r = await bindRewardItem(ctx, parsed.data);
+    if (!r.ok) return r;
+    revalidateRewards();
+    revalidatePath("/settings/integrations");
+    return { ok: true, data: { bindingId: r.data!.bindingId, issues: r.data!.issues, title: r.data!.product.title, variantId: r.data!.variant.variantId } };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function unbindReward(input: unknown): Promise<ActionResult> {
+  const ctx = await admin();
+  if (!ctx) return DENIED;
+  const parsed = z.object({ bindingId: z.string().min(1) }).safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Invalid request." };
+  const r = await unbindRewardItem(ctx, parsed.data);
+  if (r.ok) {
+    revalidateRewards();
+    revalidatePath("/settings/integrations");
+  }
   return r;
+}
+
+export async function verifyRewardBindingNow(bindingId: string): Promise<ActionResult<{ issues: BindingIssue[] }>> {
+  const ctx = await operator();
+  if (!ctx) return { ok: false, error: "You need the Operator role or above." };
+  try {
+    const r = await verifyRewardBinding(ctx, bindingId);
+    if (!r.ok) return r;
+    revalidateRewards();
+    revalidatePath("/settings/integrations");
+    return { ok: true, data: { issues: r.data!.issues } };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 export async function migrateLegacyRule(input: unknown): Promise<ActionResult> {

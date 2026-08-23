@@ -2,7 +2,7 @@
  * Action planner (Phase 4 / 4b) — decides which milestones get a PLANNED AutomationAction.
  *
  *   subscription → latest journey → programme → reward schedule → next delivery N
- *     → effective milestone(N) (mode, scope, reward item, programme's marker binding)
+ *     → effective milestone(N) (mode, scope, reward item, the reward item's Shopify binding for the programme's store)
  *     → operational eligibility + scope qualification
  *     → exactly one internally-owned PLANNED action per milestone owner
  *     → targetChargeDate = the subscription's exact provider next-charge date
@@ -13,7 +13,9 @@
  *     planned"); a cheap pre-check only avoids routine violations;
  *   - re-running produces no new rows; a moved target charge is updated IN PLACE (replanCount++);
  *   - live PLANNED actions that no longer qualify are CANCELLED (reason recorded) or SUPERSEDED
- *     (the programme's marker binding changed) through transitionAction — the only status writer.
+ *     (the milestone now awards a different reward item) through transitionAction — the only status writer.
+ *   - Actions reference the physical RewardItem; the variant is resolved from the reward item's binding at
+ *     dry-run/execution time, so re-binding a reward to another Shopify variant never duplicates actions.
  *
  * INITIAL_CHECKOUT milestones are never planned here (reported as INITIAL_CHECKOUT_NOT_PLANNED).
  * `persist: false` evaluates everything and returns the same decisions without writing a row.
@@ -178,10 +180,10 @@ export async function planActionsForIntegration(
             summary.decisions.push({ ...base, outcome: "NOT_QUALIFIED", reason: qual.reason });
             continue;
           }
-          const marker = m.marker!; // readiness READY guarantees a bound, active, non-placeholder marker
+          const binding = m.binding!; // readiness READY guarantees an active, verified reward binding for this store
           const schedule = computeSchedule({ targetChargeDate: row.nextChargeDate!, timezone: org.timezone, markerLeadHours: org.markerLeadHours, now });
-          const liveKey = liveKeyFor(journey.id, m.cycleNumber, marker.id);
-          const ownerKey = ownerKeyFor({ scope: m.eligibilityScope, journeyId: journey.id, customerId: row.customerId, programId: m.programId, targetCycle: m.cycleNumber, fulfillmentMarkerId: marker.id });
+          const liveKey = liveKeyFor(journey.id, m.cycleNumber, m.rewardItem.id);
+          const ownerKey = ownerKeyFor({ scope: m.eligibilityScope, journeyId: journey.id, customerId: row.customerId, programId: m.programId, targetCycle: m.cycleNumber, rewardId: m.rewardItem.id });
           if (!persist) {
             const existing = await db.automationAction.findFirst({ where: { OR: [{ liveKey }, { ownerKey }] }, select: { id: true, journeyId: true } });
             summary.decisions.push({ ...base, outcome: existing ? (existing.journeyId === journey.id ? "CONFIRMED" : "OWNED_BY_OTHER_JOURNEY") : "WOULD_PLAN", actionId: existing?.id, targetChargeDate: schedule.targetChargeDate, executeAfter: schedule.executeAfter.toISOString() });
@@ -202,7 +204,8 @@ export async function planActionsForIntegration(
                   programId: m.programId,
                   subscriptionId: row.subscriptionId,
                   journeyId: journey.id,
-                  fulfillmentMarkerId: marker.id,
+                  rewardItemId: m.rewardItem.id,
+                  fulfillmentMarkerId: null,
                   type: "ADD_FULFILLMENT_MARKER",
                   source: "RULE",
                   targetCycle: m.cycleNumber,
@@ -229,8 +232,8 @@ export async function planActionsForIntegration(
                 eventType: "ACTION_PLANNED",
                 entityType: "ACTION",
                 entityId: created.id,
-                summary: `Planned ${integration.automationMode === "LIVE" ? "" : "(dry run) "}"${marker.name}" (${m.rewardItem.name}) for ${base.customerName} · ${m.programName} delivery ${m.cycleNumber} · target charge ${schedule.targetChargeDate} · attach after ${schedule.executeAfter.toISOString()}`,
-                metadata: { milestoneId: m.milestoneId, scheduleId: m.scheduleId, programId: m.programId, subscriptionId: row.subscriptionId, journeyId: journey.id, targetCycle: m.cycleNumber, scope: m.eligibilityScope, plannerRunId: run?.id ?? null, insideWindow: schedule.insideWindow },
+                summary: `Planned ${integration.automationMode === "LIVE" ? "" : "(dry run) "}${m.rewardItem.name} (Shopify "${binding.externalTitle}", variant ${binding.externalVariantId}) for ${base.customerName} · ${m.programName} delivery ${m.cycleNumber} · target charge ${schedule.targetChargeDate} · attach after ${schedule.executeAfter.toISOString()}`,
+                metadata: { milestoneId: m.milestoneId, scheduleId: m.scheduleId, programId: m.programId, rewardItemId: m.rewardItem.id, bindingId: binding.id, externalVariantId: binding.externalVariantId, subscriptionId: row.subscriptionId, journeyId: journey.id, targetCycle: m.cycleNumber, scope: m.eligibilityScope, plannerRunId: run?.id ?? null, insideWindow: schedule.insideWindow },
               });
               continue;
             } catch (e) {
@@ -261,7 +264,7 @@ export async function planActionsForIntegration(
             });
             summary.replanned++;
             summary.decisions.push({ ...base, outcome: "REPLANNED", actionId: existing.id, targetChargeDate: schedule.targetChargeDate, executeAfter: schedule.executeAfter.toISOString() });
-            await logActivity(ctx, { actorType: "SYSTEM", eventType: "ACTION_REPLANNED", entityType: "ACTION", entityId: existing.id, summary: `Replanned "${marker.name}" for ${base.customerName}: target charge ${existing.targetChargeDate ?? "—"} → ${schedule.targetChargeDate}`, metadata: { previousTargetChargeDate: existing.targetChargeDate, targetChargeDate: schedule.targetChargeDate, plannerRunId: run?.id ?? null } });
+            await logActivity(ctx, { actorType: "SYSTEM", eventType: "ACTION_REPLANNED", entityType: "ACTION", entityId: existing.id, summary: `Replanned ${m.rewardItem.name} for ${base.customerName}: target charge ${existing.targetChargeDate ?? "—"} → ${schedule.targetChargeDate}`, metadata: { previousTargetChargeDate: existing.targetChargeDate, targetChargeDate: schedule.targetChargeDate, plannerRunId: run?.id ?? null } });
           } else {
             await db.automationAction.update({ where: { id: existing.id }, data: { lastPlannedAt: now, ...(existing.rewardScheduleMilestoneId ? {} : { rewardScheduleMilestoneId: m.milestoneId, programId: m.programId }) } });
             summary.confirmed++;
@@ -292,10 +295,10 @@ export async function planActionsForIntegration(
       const verdict = await reconcileReason(a);
       if (!persist) continue;
       if (verdict.kind === "SUPERSEDED") {
-        await db.$transaction((tx) => transitionAction(tx, a.id, "SUPERSEDED", { reason: "BINDING_CHANGED", detail: "programme marker binding changed", supersededById: verdict.replacedBy ?? undefined }));
+        await db.$transaction((tx) => transitionAction(tx, a.id, "SUPERSEDED", { reason: "REWARD_CHANGED", detail: "milestone now awards a different reward item", supersededById: verdict.replacedBy ?? undefined }));
         summary.superseded++;
         summary.supersededActions.push({ actionId: a.id, replacedBy: verdict.replacedBy });
-        await logActivity(ctx, { actorType: "SYSTEM", eventType: "ACTION_SUPERSEDED", entityType: "ACTION", entityId: a.id, summary: `Superseded planned action for ${a.subscription.externalSubscriptionId}: the programme's marker binding changed${verdict.replacedBy ? ` (replaced by ${verdict.replacedBy})` : ""}`, metadata: { replacedBy: verdict.replacedBy, plannerRunId: run?.id ?? null } });
+        await logActivity(ctx, { actorType: "SYSTEM", eventType: "ACTION_SUPERSEDED", entityType: "ACTION", entityId: a.id, summary: `Superseded planned action for ${a.subscription.externalSubscriptionId}: the milestone now awards a different reward item${verdict.replacedBy ? ` (replaced by ${verdict.replacedBy})` : ""}`, metadata: { replacedBy: verdict.replacedBy, plannerRunId: run?.id ?? null } });
       } else {
         await db.$transaction((tx) => transitionAction(tx, a.id, "CANCELLED", { reason: verdict.reason, detail: verdict.detail }));
         summary.cancelled++;
@@ -324,12 +327,11 @@ export async function planActionsForIntegration(
         const r = em.readiness;
         if (r === "SCHEDULE_NOT_READY" || r === "SCHEDULE_ARCHIVED") return { kind: "CANCELLED", reason: "SCHEDULE_NOT_READY", detail: r };
         if (r === "MILESTONE_INACTIVE") return { kind: "CANCELLED", reason: "MILESTONE_INACTIVE" };
-        if (r === "BINDING_MISSING" || r === "BINDING_INACTIVE") return { kind: "CANCELLED", reason: "BINDING_MISSING", detail: r };
         if (r === "PROGRAM_INACTIVE") return { kind: "CANCELLED", reason: "PROGRAM_CHANGED", detail: "programme inactive" };
-        return { kind: "CANCELLED", reason: "MARKER_UNAVAILABLE", detail: r };
+        return { kind: "CANCELLED", reason: "REWARD_UNBOUND", detail: r };
       }
-      if (em.marker && em.marker.id !== a.fulfillmentMarkerId) {
-        const replacement = await db.automationAction.findFirst({ where: { journeyId: a.journeyId, targetCycle: a.targetCycle, fulfillmentMarkerId: em.marker.id, status: "PLANNED" }, select: { id: true } });
+      if (a.rewardItemId && em.rewardItem.id !== a.rewardItemId) {
+        const replacement = await db.automationAction.findFirst({ where: { journeyId: a.journeyId, targetCycle: a.targetCycle, rewardItemId: em.rewardItem.id, status: "PLANNED" }, select: { id: true } });
         return { kind: "SUPERSEDED", replacedBy: replacement?.id ?? null };
       }
       if (a.subscription.status !== "ACTIVE") return { kind: "CANCELLED", reason: "SUBSCRIPTION_NOT_ACTIVE", detail: a.subscription.status };

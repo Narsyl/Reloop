@@ -1,14 +1,35 @@
 /**
- * Shopify connector DTOs (Phase 4c) — the ONLY shapes the domain sees. Shopify GraphQL payloads are
- * mapped here and never leak further. Scope of the connector: store identity, products/variants
- * (read + marker create/update), publications. Nothing about orders, customers or fulfilments.
+ * Shopify connector types (revised Phase 4c): READ-ONLY catalogue access used to bind physical reward
+ * items (Whisk, Cup, Spoon…) to their existing Shopify product variants and to verify them.
+ *
+ * Authentication: Shopify's client-credentials grant (Dev Dashboard app: Client ID + Client secret →
+ * short-lived Admin API access token exchanged server-side). The durable credential is the client
+ * id/secret pair; the access token is ephemeral infrastructure state. A merchant-OAuth-issued token
+ * slots into the same `TokenProvider` seam later (authMode ACCESS_TOKEN).
  */
 
-export type ShopifyCredentials = {
-  /** myshopify domain, e.g. "ancient-extracts.myshopify.com" */
-  shopDomain: string;
-  /** Admin API access token (custom app "shpat_…" today; OAuth-issued later — same shape) */
-  accessToken: string;
+export type ShopifyAuthMode = "CLIENT_CREDENTIALS" | "ACCESS_TOKEN";
+
+export type ShopifyCredentials =
+  | { authMode: "CLIENT_CREDENTIALS"; shopDomain: string; clientId: string; clientSecret: string }
+  /** A token someone else issued (tests, future merchant OAuth). Not the normal credential model. */
+  | { authMode: "ACCESS_TOKEN"; shopDomain: string; accessToken: string };
+
+export type ShopifyAccessToken = { accessToken: string; scope: string[]; expiresAt: Date | null };
+
+/** Supplies a valid Admin API access token for each request; may refresh behind the scenes. */
+export type ShopifyTokenProvider = {
+  authMode: ShopifyAuthMode;
+  getAccessToken(opts?: { forceRefresh?: boolean }): Promise<string>;
+  /** informational (never the token itself) */
+  describe(): { authMode: ShopifyAuthMode; expiresAt: Date | null; cached: boolean };
+};
+
+/** Persisted token cache (encrypted by the domain layer). `null` = nothing cached. */
+export type ShopifyTokenCacheStore = {
+  load(): Promise<{ accessToken: string; expiresAt: Date | null; scope: string[] } | null>;
+  save(token: ShopifyAccessToken): Promise<void>;
+  clear(): Promise<void>;
 };
 
 export type ShopifyStore = {
@@ -23,21 +44,23 @@ export type ShopifyStore = {
 
 export type ShopifyPublication = { id: string; name: string };
 
-export type ShopifyProductStatus = "ACTIVE" | "ARCHIVED" | "DRAFT" | "UNLISTED";
+export type ShopifyProductStatus = "ACTIVE" | "ARCHIVED" | "DRAFT" | "UNLISTED" | string;
 
 export type ShopifyVariantSummary = {
-  variantId: string; // numeric, canonical marker identity ("56259577545090")
+  /** numeric id — the canonical fulfilment identity */
+  variantId: string;
   variantGid: string;
-  title: string;
+  title: string | null;
   sku: string | null;
   price: string;
   inventoryItemId: string | null;
   inventoryTracked: boolean | null;
   requiresShipping: boolean | null;
+  availableForSale: boolean | null;
 };
 
 export type ShopifyProductSummary = {
-  productId: string; // numeric
+  productId: string;
   productGid: string;
   title: string;
   handle: string;
@@ -46,45 +69,37 @@ export type ShopifyProductSummary = {
   tags: string[];
   vendor: string | null;
   onlineStoreUrl: string | null;
-  /** published to the Online Store publication (null when the publication id was not resolved) */
+  /** null when the Online Store publication is unknown / read_publications not granted */
   publishedOnlineStore: boolean | null;
+  featuredImageUrl: string | null;
   variants: ShopifyVariantSummary[];
   updatedAt: string | null;
 };
 
-/** Least-privilege capability report shown in Settings → Integrations. */
+export type CapabilityState = "available" | "unavailable" | "not-granted";
+
 export type ShopifyCapabilityReport = {
   store: ShopifyStore;
+  authMode: ShopifyAuthMode;
+  /** scopes the token actually carries (from the token response and/or currentAppInstallation) */
   grantedScopes: string[];
-  storeIdentity: "available";
+  tokenExpiresAt: string | null;
+  storeIdentity: "available" | "unavailable";
   productsRead: "available" | "unavailable";
-  productsWrite: "available" | "unavailable";
-  publicationsRead: "available" | "unavailable";
-  publicationsWrite: "available" | "unavailable";
-  /** scopes granted beyond what this connector needs — flagged, never used */
-  unexpectedScopes: string[];
-  notRequested: readonly ["orders", "customers", "fulfillments", "draft_orders", "discounts", "inventory", "themes", "checkouts"];
+  /** optional — used only for the "published to Online Store" hint */
+  publicationsRead: CapabilityState;
   onlineStorePublicationId: string | null;
+  /** write or non-catalogue scopes this connector never uses (should be removed from the app) */
+  unexpectedScopes: string[];
+  notRequested: readonly string[];
   requiredOk: boolean;
   missingScopes: string[];
   checkedAt: string;
 };
 
-export const REQUIRED_SHOPIFY_SCOPES = ["read_products", "write_products", "read_publications", "write_publications"] as const;
-export const NOT_REQUESTED_AREAS = ["orders", "customers", "fulfillments", "draft_orders", "discounts", "inventory", "themes", "checkouts"] as const;
-
-/** What the platform wants a fulfilment-marker product to look like in Shopify. */
-export type MarkerProductSpec = {
-  title: string; // "Morning Magic 2"
-  sku: string; // "MM-CYCLE-02"
-  price: string; // "0.00"
-  status: ShopifyProductStatus; // UNLISTED (target), never DRAFT merely to hide
-  productType: string; // "Fulfillment Marker"
-  tags: string[]; // ["subscription-ops-marker", …] — classification only, never identity
-  descriptionHtml?: string;
-  vendor?: string;
-  publishToOnlineStore: boolean;
-};
-
-export const MARKER_PRODUCT_TYPE = "Fulfillment Marker";
-export const MARKER_TAG = "subscription-ops-marker";
+/** The only scope the connector needs. */
+export const REQUIRED_SHOPIFY_SCOPES = ["read_products"] as const;
+/** Optional: lets the capability/verification panel show Online Store publication state. */
+export const OPTIONAL_SHOPIFY_SCOPES = ["read_publications"] as const;
+/** Everything this connector deliberately never requests. */
+export const NOT_REQUESTED_AREAS = ["write_products", "write_publications", "orders", "customers", "fulfillments", "inventory", "discounts", "draft_orders", "subscriptions", "checkout", "themes"] as const;

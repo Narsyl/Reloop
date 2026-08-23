@@ -61,7 +61,7 @@ export async function upsertRewardSchedule(ctx: Ctx, input: { id?: string; name:
   }
 }
 
-export const SCHEDULE_READY_REQUIREMENTS = "A schedule can be marked Ready when it has at least one active milestone and every milestone names a reward item and an eligibility scope. Per-programme readiness (marker bindings, placeholders) is shown on the schedule and checked again by the planner.";
+export const SCHEDULE_READY_REQUIREMENTS = "A schedule can be marked Ready when it has at least one active milestone and every milestone names a reward item and an eligibility scope. Per-programme readiness (the reward items' Shopify bindings for the programme's store) is shown on the schedule and checked again by the planner.";
 
 export async function setRewardScheduleStatus(ctx: Ctx, id: string, status: RewardScheduleStatus): Promise<Result<{ status: RewardScheduleStatus }>> {
   const db = dbFor(ctx);
@@ -108,12 +108,11 @@ export async function upsertMilestone(ctx: Ctx, input: { id?: string; scheduleId
 
 export async function removeMilestone(ctx: Ctx, id: string): Promise<Result> {
   const db = dbFor(ctx);
-  const m = await db.rewardScheduleMilestone.findUnique({ where: { id }, include: { schedule: { select: { name: true, status: true } }, rewardItem: { select: { name: true } }, _count: { select: { actions: true, bindings: true } } } });
+  const m = await db.rewardScheduleMilestone.findUnique({ where: { id }, include: { schedule: { select: { name: true, status: true } }, rewardItem: { select: { name: true } }, _count: { select: { actions: true } } } });
   if (!m) return { ok: false, error: "Milestone not found." };
   if (m._count.actions > 0) return { ok: false, error: "This milestone has actions planned from it; deactivate it instead of removing it." };
-  await db.programMilestoneMarker.deleteMany({ where: { rewardScheduleMilestoneId: id } });
   await db.rewardScheduleMilestone.delete({ where: { id } });
-  await logActivity(ctx, { ...actor(ctx), eventType: "REWARD_MILESTONE_REMOVED", entityType: "REWARD_SCHEDULE", entityId: m.scheduleId, summary: `"${m.schedule.name}": removed delivery ${m.cycleNumber} → ${m.rewardItem.name}${m._count.bindings ? ` (and ${m._count.bindings} marker binding(s))` : ""}` });
+  await logActivity(ctx, { ...actor(ctx), eventType: "REWARD_MILESTONE_REMOVED", entityType: "REWARD_SCHEDULE", entityId: m.scheduleId, summary: `"${m.schedule.name}": removed delivery ${m.cycleNumber} → ${m.rewardItem.name}` });
   return { ok: true };
 }
 
@@ -134,37 +133,6 @@ export async function assignProgramSchedule(ctx: Ctx, input: { programId: string
   await db.subscriptionProgram.update({ where: { id: program.id }, data: { rewardScheduleId: input.scheduleId, rewardScheduleAssignedAt: input.scheduleId ? new Date() : null } });
   await logActivity(ctx, { ...actor(ctx), eventType: "PROGRAM_SCHEDULE_ASSIGNED", entityType: "PROGRAM", entityId: program.id, summary: `Programme "${program.name}" reward schedule: ${program.rewardSchedule?.name ?? "none"} → ${scheduleName ?? "none"} (lifecycle history unchanged; reward eligibility only)`, metadata: { previousScheduleId: program.rewardScheduleId, scheduleId: input.scheduleId } });
   return { ok: true };
-}
-
-// ── Marker bindings ────────────────────────────────────────────────────────
-
-export async function bindProgramMarker(ctx: Ctx, input: { programId: string; milestoneId: string; fulfillmentMarkerId: string | null }): Promise<Result<{ bindingId: string | null }>> {
-  const db = dbFor(ctx);
-  const program = await db.subscriptionProgram.findUnique({ where: { id: input.programId }, select: { id: true, name: true, rewardScheduleId: true, products: { select: { product: { select: { integrationId: true } } } } } });
-  if (!program) return { ok: false, error: "Programme not found." };
-  const milestone = await db.rewardScheduleMilestone.findUnique({ where: { id: input.milestoneId }, include: { rewardItem: { select: { id: true, name: true } }, schedule: { select: { id: true, name: true } } } });
-  if (!milestone) return { ok: false, error: "Milestone not found." };
-  if (milestone.scheduleId !== program.rewardScheduleId) return { ok: false, error: `"${program.name}" is not on the schedule "${milestone.schedule.name}"; assign the schedule first.` };
-  const existing = await db.programMilestoneMarker.findUnique({ where: { programId_rewardScheduleMilestoneId: { programId: program.id, rewardScheduleMilestoneId: milestone.id } }, include: { fulfillmentMarker: { select: { name: true } } } });
-  if (!input.fulfillmentMarkerId) {
-    if (!existing) return { ok: true, data: { bindingId: null } };
-    const hasLive = await db.automationAction.count({ where: { programId: program.id, rewardScheduleMilestoneId: milestone.id, status: { in: ["EXECUTING", "ATTACHED"] } } });
-    if (hasLive > 0) return { ok: false, error: "Actions for this milestone are attaching/attached; the binding cannot be removed until they complete." };
-    await db.programMilestoneMarker.delete({ where: { id: existing.id } });
-    await logActivity(ctx, { ...actor(ctx), eventType: "PROGRAM_MARKER_UNBOUND", entityType: "PROGRAM", entityId: program.id, summary: `"${program.name}" delivery ${milestone.cycleNumber} (${milestone.rewardItem.name}): marker "${existing.fulfillmentMarker.name}" unbound` });
-    return { ok: true, data: { bindingId: null } };
-  }
-  const marker = await db.fulfillmentMarker.findUnique({ where: { id: input.fulfillmentMarkerId }, select: { id: true, name: true, integrationId: true, rewardItemId: true, placeholder: true, active: true, rewardItem: { select: { name: true } } } });
-  if (!marker) return { ok: false, error: "Marker not found in this organisation." };
-  const integrations = new Set(program.products.map((p) => p.product.integrationId));
-  if (integrations.size > 0 && !integrations.has(marker.integrationId)) return { ok: false, error: "That marker belongs to a different store than the programme's products." };
-  if (!marker.rewardItemId) return { ok: false, error: `Marker "${marker.name}" has no reward item set. Set it to "${milestone.rewardItem.name}" first so the binding is verifiable.` };
-  if (marker.rewardItemId !== milestone.rewardItemId) return { ok: false, error: `Marker "${marker.name}" represents "${marker.rewardItem?.name}", but this milestone is "${milestone.rewardItem.name}".` };
-  const binding = existing
-    ? await db.programMilestoneMarker.update({ where: { id: existing.id }, data: { fulfillmentMarkerId: marker.id, active: true } })
-    : await db.programMilestoneMarker.create({ data: { organizationId: ctx.organizationId, programId: program.id, rewardScheduleMilestoneId: milestone.id, fulfillmentMarkerId: marker.id } });
-  await logActivity(ctx, { ...actor(ctx), eventType: existing ? "PROGRAM_MARKER_REBOUND" : "PROGRAM_MARKER_BOUND", entityType: "PROGRAM", entityId: program.id, summary: `"${program.name}" delivery ${milestone.cycleNumber} (${milestone.rewardItem.name}) → marker "${marker.name}"${marker.placeholder ? " (PLACEHOLDER — not executable)" : ""}${existing ? ` (was "${existing.fulfillmentMarker.name}")` : ""}`, metadata: { milestoneId: milestone.id, fulfillmentMarkerId: marker.id, previousMarker: existing?.fulfillmentMarker.name ?? null, placeholder: marker.placeholder } });
-  return { ok: true, data: { bindingId: binding.id } };
 }
 
 // ── Legacy rule migration ──────────────────────────────────────────────────

@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import type { ActionStatus } from "@prisma/client";
 import { CalendarClock } from "lucide-react";
 import { hasRole, requireOrg } from "@/lib/auth/tenancy";
-import { listIntegrationsForAutomation, listMarkersForFilter, listPlannerRuns, listUpcomingActions } from "@/lib/domain/queries/upcoming";
+import { listIntegrationsForAutomation, listRewardItemsForFilter, listPlannerRuns, listUpcomingActions } from "@/lib/domain/queries/upcoming";
 import { listProgramsForFilter } from "@/lib/domain/queries/subscriptions";
 import { actionStatus, automationMode, dryRunState, eligibilityScopeLabel } from "@/lib/status";
 import { customerName, formatDateOnly, formatDateTime, formatRelative, pluralize } from "@/lib/format";
@@ -20,12 +20,12 @@ export default async function UpcomingPage({ searchParams }: PageProps<"/upcomin
   const sp = await searchParams;
   const status = (typeof sp.status === "string" ? sp.status : "LIVE") as ActionStatus | "ALL" | "LIVE";
   const programId = typeof sp.program === "string" ? sp.program : undefined;
-  const markerId = typeof sp.marker === "string" ? sp.marker : undefined;
+  const rewardItemId = typeof sp.reward === "string" ? sp.reward : undefined;
   const integrationId = typeof sp.integration === "string" ? sp.integration : undefined;
-  const [data, programs, markers, integrations, runs] = await Promise.all([
-    listUpcomingActions(ctx, { status, programId, markerId, integrationId }),
+  const [data, programs, rewards, integrations, runs] = await Promise.all([
+    listUpcomingActions(ctx, { status, programId, rewardItemId, integrationId }),
     listProgramsForFilter(ctx),
-    listMarkersForFilter(ctx),
+    listRewardItemsForFilter(ctx),
     listIntegrationsForAutomation(ctx),
     listPlannerRuns(ctx, { take: 5 }),
   ]);
@@ -86,7 +86,7 @@ export default async function UpcomingPage({ searchParams }: PageProps<"/upcomin
             ]}
           />
           <SelectFilter name="program" label="Programme" options={programs.map((p) => ({ value: p.id, label: p.name }))} />
-          <SelectFilter name="marker" label="Marker" options={markers.map((m) => ({ value: m.id, label: m.name }))} />
+          <SelectFilter name="reward" label="Reward" options={rewards.map((m) => ({ value: m.id, label: m.name }))} />
           {integrations.length > 1 ? <SelectFilter name="integration" label="Store" options={integrations.map((i) => ({ value: i.id, label: i.displayName }))} /> : null}
           <ClearFilters />
         </FilterBar>
@@ -113,7 +113,7 @@ export default async function UpcomingPage({ searchParams }: PageProps<"/upcomin
                       <th className="px-3 py-2 font-medium">Customer</th>
                       <th className="px-3 py-2 font-medium">Programme</th>
                       <th className="px-3 py-2 text-right font-medium">Target delivery</th>
-                      <th className="px-3 py-2 font-medium">Marker</th>
+                      <th className="px-3 py-2 font-medium">Reward</th>
                       <th className="px-3 py-2 font-medium">Planned execution</th>
                       <th className="px-3 py-2 font-medium">Status</th>
                       <th className="px-3 py-2 font-medium">Eligibility / risk</th>
@@ -130,7 +130,7 @@ export default async function UpcomingPage({ searchParams }: PageProps<"/upcomin
                           </td>
                           <td className="px-3 py-2 text-muted-foreground">{a.journey.program.name}<span className="block text-[11px]">{a.milestone ? `${a.milestone.schedule.name} · delivery ${a.milestone.cycleNumber} → ${a.milestone.rewardItem.name} · ${eligibilityScopeLabel[a.milestone.eligibilityScope].label}` : a.rule ? `legacy rule: ${a.rule.name}` : "—"}</span></td>
                           <td className="tnum px-3 py-2 text-right">{a.targetCycle}</td>
-                          <td className="px-3 py-2">{a.fulfillmentMarker.name}{a.fulfillmentMarker.placeholder ? <span className="ml-1 text-[11px] text-status-warning">placeholder</span> : null}<span className="block font-mono text-[11px] text-muted-foreground">{a.fulfillmentMarker.externalVariantId}</span></td>
+                          <td className="px-3 py-2">{a.rewardItem?.name ?? a.fulfillmentMarker?.name ?? "—"}{a.fulfillmentMarker ? <span className="ml-1 text-[11px] text-muted-foreground">legacy marker{a.fulfillmentMarker.placeholder ? " · placeholder" : ""}</span> : null}{a.fulfillmentMarker ? <span className="block font-mono text-[11px] text-muted-foreground">{a.fulfillmentMarker.externalVariantId}</span> : null}</td>
                           <td className="tnum px-3 py-2 text-xs">{a.executeAfter ? formatDateTime(a.executeAfter, ctx.timezone) : "—"}{a.replanCount > 0 ? <span className="block text-[11px] text-muted-foreground">replanned ×{a.replanCount}</span> : null}</td>
                           <td className="px-3 py-2"><StatusBadge status={actionStatus[a.status]} />{a.dryRun ? <span className="ml-1 text-[11px] text-muted-foreground">dry run</span> : null}</td>
                           <td className="px-3 py-2"><StatusBadge status={state} />{a.lastDryRunAt ? <span className="block text-[11px] text-muted-foreground">checked {formatRelative(a.lastDryRunAt, now)}</span> : null}</td>

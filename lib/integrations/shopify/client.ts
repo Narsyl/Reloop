@@ -1,29 +1,25 @@
 /**
- * Shopify Admin GraphQL client (Phase 4c) — one client, narrow on purpose.
+ * Shopify Admin GraphQL client (revised Phase 4c) — READ-ONLY by construction.
  *
- *  - auth header + API version, timeout, retries with jitter on 429 / 5xx / network
- *  - cost-based throttling: waits when `extensions.cost.throttleStatus` says the bucket is low
- *  - GraphQL `errors` → VALIDATION_ERROR / PERMISSION_ERROR / RATE_LIMITED; `userErrors` → USER_ERROR
- *  - Zod-validated responses (SCHEMA_ERROR otherwise)
- *  - **mutation allowlist**: only product/variant/publication mutations needed for fulfilment markers can
- *    be sent (`MUTATION_ALLOWLIST`). Anything else is refused client-side with FORBIDDEN_OPERATION —
- *    the connector cannot touch orders, customers, fulfilments or anything else even by mistake.
- *  - structured, redacted logging (token never logged)
- *
- * Authentication today is a custom-app Admin API access token; an OAuth-issued token has the same
- * shape, so swapping the credential source later does not change this client or the domain layer.
+ *  - token from a `ShopifyTokenProvider` (client-credentials exchange + cache, or a static token)
+ *  - API version pin, timeout, retries with jitter on 429 / 5xx / network, cost-based throttle waits
+ *  - one automatic refresh-and-retry when Shopify answers 401 (expired/revoked token)
+ *  - GraphQL `errors` → VALIDATION_ERROR / PERMISSION_ERROR / RATE_LIMITED; Zod-validated responses
+ *  - **no mutations**: there is no `mutate()`; any document whose operation is a mutation is refused
+ *    client-side with FORBIDDEN_OPERATION. The connector cannot write to Shopify even by mistake.
+ *  - structured, redacted logging (tokens / secrets never logged)
  */
 import type { z } from "zod";
 import { ShopifyError, type ShopifyErrorKind } from "./errors";
-import type { ShopifyCredentials } from "./types";
+import { normalizeShopDomain } from "./auth";
+import type { ShopifyTokenProvider } from "./types";
 import { logger, type Logger } from "@/lib/logging/logger";
 
 export const SHOPIFY_API_VERSION = "2026-07";
 
-export const MUTATION_ALLOWLIST: ReadonlySet<string> = new Set(["productCreate", "productUpdate", "productVariantsBulkUpdate", "publishablePublish", "publishableUnpublish"]);
-
 export type ShopifyClientOptions = {
-  credentials: ShopifyCredentials;
+  shopDomain: string;
+  tokenProvider: ShopifyTokenProvider;
   apiVersion?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
@@ -42,15 +38,15 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-export function normalizeShopDomain(input: string): string {
-  const d = input.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-  if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(d)) throw new ShopifyError("VALIDATION_ERROR", `"${input}" is not a myshopify.com domain (expected e.g. your-store.myshopify.com)`);
-  return d;
+/** True when the document's top-level operation is anything but a query. */
+export function isMutationDocument(document: string): boolean {
+  const stripped = document.replace(/#[^\n]*/g, "").trim();
+  return /^(mutation|subscription)\b/i.test(stripped);
 }
 
 export class ShopifyAdminClient {
   private readonly shopDomain: string;
-  private readonly accessToken: string;
+  private readonly tokenProvider: ShopifyTokenProvider;
   private readonly apiVersion: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
@@ -60,9 +56,8 @@ export class ShopifyAdminClient {
   private lastThrottle: { maximumAvailable: number; currentlyAvailable: number; restoreRate: number } | null = null;
 
   constructor(opts: ShopifyClientOptions) {
-    this.shopDomain = normalizeShopDomain(opts.credentials.shopDomain);
-    this.accessToken = opts.credentials.accessToken;
-    if (!this.accessToken) throw new ShopifyError("AUTHENTICATION_ERROR", "Shopify access token is missing");
+    this.shopDomain = normalizeShopDomain(opts.shopDomain);
+    this.tokenProvider = opts.tokenProvider;
     this.apiVersion = opts.apiVersion ?? SHOPIFY_API_VERSION;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.timeoutMs = opts.timeoutMs ?? 20_000;
@@ -80,42 +75,33 @@ export class ShopifyAdminClient {
   get version(): string {
     return this.apiVersion;
   }
+  get auth(): ShopifyTokenProvider {
+    return this.tokenProvider;
+  }
 
-  /** Read-only GraphQL query. */
+  /** Read-only GraphQL query. Mutation documents are refused before any network call. */
   async query<T>(operation: string, document: string, variables: Record<string, unknown> = {}, schema?: z.ZodType<T>): Promise<T> {
-    return this.execute<T>("query", operation, document, variables, schema);
-  }
-
-  /** Mutation — refused unless `operation` is in MUTATION_ALLOWLIST. */
-  async mutate<T>(operation: string, document: string, variables: Record<string, unknown> = {}, schema?: z.ZodType<T>): Promise<T> {
-    if (!MUTATION_ALLOWLIST.has(operation)) {
-      throw new ShopifyError("FORBIDDEN_OPERATION", `Shopify mutation "${operation}" is outside this connector's allowlist (products / variants / publications only).`, { operation });
+    if (isMutationDocument(document)) {
+      throw new ShopifyError("FORBIDDEN_OPERATION", `Shopify operation "${operation}" is a mutation; this connector is read-only (catalogue reads for reward bindings only).`, { operation });
     }
-    // Belt and braces: the document itself must not name any non-allowlisted mutation field
-    const names = [...document.matchAll(/^\s*([a-zA-Z]+)\s*\(/gm)].map((m) => m[1]).filter((n) => n !== "mutation" && n !== "query");
-    for (const n of names) if (!MUTATION_ALLOWLIST.has(n) && /^(order|customer|fulfillment|draftOrder|discount|inventory|subscription|checkout|theme|refund|payment|webhook|app|shop)/i.test(n)) {
-      throw new ShopifyError("FORBIDDEN_OPERATION", `Shopify mutation document references "${n}", which this connector never calls.`, { operation });
-    }
-    return this.execute<T>("mutation", operation, document, variables, schema);
-  }
-
-  private async execute<T>(kind: "query" | "mutation", operation: string, document: string, variables: Record<string, unknown>, schema?: z.ZodType<T>): Promise<T> {
     let attempt = 0;
+    let refreshedOnce = false;
     for (;;) {
       await this.throttleIfNeeded();
       const startedAt = Date.now();
+      const accessToken = await this.tokenProvider.getAccessToken();
       let response: Response;
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), this.timeoutMs);
         response = await this.fetchImpl(this.endpoint, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json", "X-Shopify-Access-Token": this.accessToken },
+          headers: { "Content-Type": "application/json", Accept: "application/json", "X-Shopify-Access-Token": accessToken },
           body: JSON.stringify({ query: document, variables }),
           signal: controller.signal,
         }).finally(() => clearTimeout(timer));
       } catch (e) {
-        const err = new ShopifyError("NETWORK_ERROR", `Shopify request failed (${kind} ${operation}): ${String((e as Error)?.message ?? e)}`, { operation, cause: e });
+        const err = new ShopifyError("NETWORK_ERROR", `Shopify request failed (${operation}): ${String((e as Error)?.message ?? e)}`, { operation, cause: e });
         if (attempt < this.maxRetries) {
           const delay = this.backoff(attempt);
           this.log.warn("shopify.retry", { operation, kind: err.kind, attempt: attempt + 1, delayMs: delay });
@@ -140,7 +126,16 @@ export class ShopifyAdminClient {
         }
         throw new ShopifyError(kindFor, `Shopify ${response.status} on ${operation}`, { status: response.status, requestId, operation, retryAfterMs });
       }
-      if (response.status === 401) throw new ShopifyError("AUTHENTICATION_ERROR", "Shopify rejected the access token (401). Check the custom app token.", { status: 401, requestId, operation });
+      if (response.status === 401) {
+        // expired / revoked token: refresh once through the provider, then give up
+        if (!refreshedOnce && this.tokenProvider.authMode === "CLIENT_CREDENTIALS") {
+          refreshedOnce = true;
+          this.log.warn("shopify.token_refresh", { operation, requestId });
+          await this.tokenProvider.getAccessToken({ forceRefresh: true });
+          continue;
+        }
+        throw new ShopifyError("AUTHENTICATION_ERROR", "Shopify rejected the access token (401). Check the app credentials and that the app is installed on this store.", { status: 401, requestId, operation });
+      }
       if (response.status === 403) throw new ShopifyError("PERMISSION_ERROR", "Shopify refused the request (403) — the app lacks a required scope or the store blocks this API.", { status: 403, requestId, operation });
       if (response.status === 404) throw new ShopifyError("NOT_FOUND", `Shopify endpoint not found (404) — wrong shop domain or API version ${this.apiVersion}?`, { status: 404, requestId, operation });
       if (!response.ok) throw new ShopifyError("UNKNOWN", `Shopify ${response.status} on ${operation}`, { status: response.status, requestId, operation });
@@ -153,7 +148,7 @@ export class ShopifyAdminClient {
       }
       const throttle = body.extensions?.cost?.throttleStatus;
       if (throttle) this.lastThrottle = throttle;
-      this.log.debug("shopify.ok", { operation, kind, status: response.status, durationMs, requestId, cost: body.extensions?.cost?.actualQueryCost, available: throttle?.currentlyAvailable });
+      this.log.debug("shopify.ok", { operation, status: response.status, durationMs, requestId, cost: body.extensions?.cost?.actualQueryCost, available: throttle?.currentlyAvailable });
 
       if (body.errors && body.errors.length > 0) {
         const codes = body.errors.map((e) => e.extensions?.code).filter(Boolean);
@@ -203,13 +198,6 @@ export class ShopifyAdminClient {
   private backoff(attempt: number): number {
     const base = 500 * Math.pow(2, attempt);
     return base + Math.floor(Math.random() * 250);
-  }
-}
-
-/** Helper: throw USER_ERROR when a mutation payload carries userErrors. */
-export function assertNoUserErrors(operation: string, userErrors: { field?: (string | null)[] | null; message: string }[] | undefined | null) {
-  if (userErrors && userErrors.length > 0) {
-    throw new ShopifyError("USER_ERROR", `Shopify rejected ${operation}: ${userErrors.map((u) => `${(u.field ?? []).filter(Boolean).join(".") || "input"}: ${u.message}`).join("; ")}`, { operation, details: userErrors });
   }
 }
 

@@ -19,10 +19,11 @@ const DENIED = { ok: false as const, error: "You need the Admin or Owner role to
 
 const credsSchema = z.object({
   shopDomain: z.string().trim().min(6, "Enter the myshopify.com domain."),
-  accessToken: z.string().trim().min(20, "Paste the custom app's Admin API access token (shpat_…)."),
+  clientId: z.string().trim().min(8, "Paste the app's Client ID."),
+  clientSecret: z.string().trim().min(8, "Paste the app's Client secret."),
 });
 
-/** Read-only probe: store identity + granted scopes + capability report. Nothing is saved. */
+/** Read-only probe: token exchange + store identity + read_products check. Nothing is saved; the secret is not echoed back. */
 export async function testShopifyConnection(input: unknown): Promise<ActionResult<ShopifyCapabilityReport>> {
   const ctx = await admin();
   if (!ctx) return DENIED;
@@ -36,10 +37,10 @@ export async function connectShopify(input: unknown): Promise<ActionResult<{ int
   if (!ctx) return DENIED;
   const parsed = credsSchema.extend({ pairedIntegrationId: z.string().min(1).nullable(), displayName: z.string().trim().max(80).optional().or(z.literal("")) }).safeParse(input);
   if (!parsed.success) return { ok: false, error: "Please check the form.", fieldErrors: z.flattenError(parsed.error).fieldErrors };
-  const r = await connectShopifyIntegration(ctx, { shopDomain: parsed.data.shopDomain, accessToken: parsed.data.accessToken, pairedIntegrationId: parsed.data.pairedIntegrationId, displayName: parsed.data.displayName || null });
+  const r = await connectShopifyIntegration(ctx, { shopDomain: parsed.data.shopDomain, clientId: parsed.data.clientId, clientSecret: parsed.data.clientSecret, pairedIntegrationId: parsed.data.pairedIntegrationId, displayName: parsed.data.displayName || null });
   if (r.ok) {
     revalidatePath("/settings/integrations");
-    revalidatePath("/products");
+    revalidatePath("/rewards");
   }
   return r;
 }

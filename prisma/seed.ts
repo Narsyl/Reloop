@@ -199,6 +199,28 @@ async function seedDemoOrg(ownerId: string, viewerId: string) {
       { ...O, programId: progCacao.id, rewardScheduleMilestoneId: msCacao3.id, fulfillmentMarkerId: markerCacao3.id },
     ],
   });
+  // revised Phase 4c: read-only Shopify catalogue paired with the Recharge store; physical rewards
+  // bind to EXISTING variants (no programme-specific markers in the execution path)
+  const shopify = await prisma.integration.create({
+    data: {
+      ...O,
+      provider: "SHOPIFY",
+      status: "CONNECTED",
+      externalStoreId: "ancient-extracts-demo-shop.myshopify.com",
+      displayName: "Ancient Extracts (Shopify)",
+      encryptedCredentials: "v1.seed.AAAA.AAAA.AAAA", // placeholder, never decrypted
+      automationMode: "OFF",
+      pairedIntegrationId: integration.id,
+      settingsJson: { shopDomain: "ancient-extracts-demo-shop.myshopify.com", apiVersion: "2026-07", authMode: "CLIENT_CREDENTIALS", clientIdHint: "demo…1234", grantedScopes: ["read_products"], onlineStorePublicationId: null, store: { shopGid: "gid://shopify/Shop/1", name: "Ancient Extracts (demo)", myshopifyDomain: "ancient-extracts-demo-shop.myshopify.com", primaryDomainHost: null, currencyCode: "GBP", planDisplayName: "Demo", ianaTimezone: "Europe/London" } },
+    },
+  });
+  await prisma.rewardItemExternalBinding.createMany({
+    data: [
+      { ...O, rewardItemId: whisk.id, integrationId: shopify.id, provider: "SHOPIFY", externalProductId: "9200001", externalVariantId: "9200002", externalTitle: "Electric Whisk", externalSku: "AE-WHISK", externalPrice: "6.00", externalStatus: "ACTIVE", requiresShipping: true, inventoryTracked: false, lastVerifiedAt: now, verificationJson: { checkedAt: now.toISOString(), issues: ["PRICED"] } },
+      { ...O, rewardItemId: cup.id, integrationId: shopify.id, provider: "SHOPIFY", externalProductId: "9200003", externalVariantId: "9200004", externalTitle: "Ceramic Cup", externalSku: "AE-CUP", externalPrice: "12.00", externalStatus: "ACTIVE", requiresShipping: true, inventoryTracked: false, lastVerifiedAt: now, verificationJson: { checkedAt: now.toISOString(), issues: ["PRICED"] } },
+    ],
+  });
+
   // milestone ids used by the demo actions below
   const ruleMM2 = { id: msMM2.id, programId: progMM.id };
   const ruleCacao3 = { id: msCacao3.id, programId: progCacao.id };

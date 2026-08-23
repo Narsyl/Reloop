@@ -14,9 +14,10 @@ import { SyncStatus, type SyncStatusData } from "@/components/domain/sync-status
 import { AutomationModeControl, RunPlannerButton } from "@/components/domain/automation-panel";
 import { ShopifyCapabilityPanel } from "@/components/domain/shopify-capability-panel";
 import { RecheckShopifyButton } from "@/components/domain/connect-shopify-dialog";
-import { VerifyMarkerButton } from "@/components/domain/marker-shopify";
-import { listMarkersForShopifyIntegration } from "@/lib/domain/queries/products";
+import { RewardBindingsTable } from "@/components/domain/reward-bindings";
+import { listRewardBindings } from "@/lib/domain/rewards/bindings";
 import type { ShopifyCapabilityReport } from "@/lib/integrations/shopify";
+import type { ShopifyIntegrationSettings } from "@/lib/domain/integrations/shopify";
 import { listPlannerRuns } from "@/lib/domain/queries/upcoming";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { CapabilityMap } from "@/lib/integrations/types";
@@ -51,27 +52,32 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
   const { integration: i, syncs, stats, activeSync } = data;
   if (i.provider === "SHOPIFY") {
     const report = (i.capabilitiesJson as ShopifyCapabilityReport | null) ?? null;
-    const settings = (i.settingsJson as { shopDomain?: string; apiVersion?: string; onlineStorePublicationId?: string | null; store?: { name?: string; myshopifyDomain?: string; primaryDomainHost?: string | null; currencyCode?: string; planDisplayName?: string | null } } | null) ?? null;
-    const markers = await listMarkersForShopifyIntegration(ctx, i.id);
+    const settings = (i.settingsJson as Partial<ShopifyIntegrationSettings> | null) ?? null;
+    const bindings = await listRewardBindings(ctx);
+    const rows = bindings.rows.filter((r) => r.shopify?.id === i.id);
+    const canManage = hasRole(ctx, "ADMIN");
     return (
       <>
         <PageHeader
           eyebrow={<Link href="/settings/integrations" className="hover:underline">Integrations</Link>}
           title={i.displayName}
-          description="Shopify — catalogue + fulfilment-marker identity/verification only. Never orders, customers or fulfilments; Recharge remains the subscription authority."
+          description="Shopify — read-only catalogue access used to bind physical reward items (Whisk, Cup, Spoon…) to their existing variants. Never orders, customers, fulfilments or writes; Recharge remains the subscription authority."
           meta={<StatusBadge status={integrationStatus[i.status]} size="md" />}
-          actions={hasRole(ctx, "ADMIN") ? <RecheckShopifyButton integrationId={i.id} /> : undefined}
+          actions={canManage ? <RecheckShopifyButton integrationId={i.id} /> : undefined}
         />
         <section className="grid gap-6 lg:grid-cols-2">
           <div className="space-y-3">
-            <SectionHeader title="Store identity" />
+            <SectionHeader title="Store & authentication" />
             <DetailList>
               <DetailRow label="Shop">{settings?.store?.name ?? i.displayName}</DetailRow>
               <DetailRow label="myshopify domain"><span className="font-mono text-xs">{settings?.shopDomain ?? i.externalStoreId}</span></DetailRow>
               <DetailRow label="Primary domain">{settings?.store?.primaryDomainHost ?? "—"}</DetailRow>
               <DetailRow label="Currency / plan">{settings?.store?.currencyCode ?? "—"}{settings?.store?.planDisplayName ? " · " + settings.store.planDisplayName : ""}</DetailRow>
               <DetailRow label="Admin API version">{settings?.apiVersion ?? "—"}</DetailRow>
-              <DetailRow label="Online Store publication"><span className="font-mono text-xs">{settings?.onlineStorePublicationId ?? "not found"}</span></DetailRow>
+              <DetailRow label="Authentication">{settings?.authMode === "CLIENT_CREDENTIALS" ? "Client credentials (server-side token exchange)" : (settings?.authMode ?? "—")}</DetailRow>
+              <DetailRow label="Client ID"><span className="font-mono text-xs">{settings?.clientIdHint ?? "—"}</span></DetailRow>
+              <DetailRow label="Client secret"><span className="font-mono text-xs">••••••••••••</span></DetailRow>
+              <DetailRow label="Access token">{i.accessTokenExpiresAt ? `ephemeral · auto-refreshes · current one expires ${formatRelative(i.accessTokenExpiresAt)}` : "obtained on first use"}</DetailRow>
               <DetailRow label="Serves Recharge store">{i.pairedIntegration ? <Link href={"/settings/integrations/" + i.pairedIntegration.id} className="hover:underline">{i.pairedIntegration.displayName}</Link> : <span className="text-status-warning">not paired</span>}</DetailRow>
               <DetailRow label="Capabilities checked">{i.capabilitiesCheckedAt ? formatDateTime(i.capabilitiesCheckedAt, ctx.timezone) : "—"}</DetailRow>
               {i.lastErrorMessage ? <DetailRow label="Last error"><span className="text-status-danger">{i.lastErrorMessage}</span></DetailRow> : null}
@@ -83,26 +89,8 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
           </div>
         </section>
         <section className="mt-6 space-y-3">
-          <SectionHeader title="Fulfilment markers verified through this store" description="Each marker's canonical identity is its Shopify variant id. Verification re-reads the product and records status, Online Store publication, price, SKU and inventory tracking." />
-          {markers.length === 0 ? <EmptyState compact title="No markers linked to this Shopify store yet" description="Create or adopt markers from Products → Markers." /> : (
-            <div className="overflow-x-auto rounded-xl border border-border bg-card">
-              <Table>
-                <TableHeader><TableRow><TableHead>Marker</TableHead><TableHead>Reward</TableHead><TableHead>Variant</TableHead><TableHead>Shopify state</TableHead><TableHead>Verified</TableHead><TableHead /></TableRow></TableHeader>
-                <TableBody>
-                  {markers.map((m) => (
-                    <TableRow key={m.id}>
-                      <TableCell className="font-medium">{m.name}{m.placeholder ? <span className="ml-1 text-[11px] text-status-warning">placeholder</span> : null}<span className="block font-mono text-[11px] text-muted-foreground">{m.sku ?? "—"}</span></TableCell>
-                      <TableCell className="text-xs">{m.rewardItem?.name ?? "—"}</TableCell>
-                      <TableCell className="font-mono text-xs">{m.externalVariantId}</TableCell>
-                      <TableCell className="text-xs">{m.shopifyStatus ?? "—"}{m.shopifyPublishedOnlineStore === null ? "" : m.shopifyPublishedOnlineStore ? " · Online Store" : " · NOT on Online Store"}{m.shopifyPrice ? " · £" + m.shopifyPrice : ""}{m.shopifyInventoryTracked ? " · tracked" : ""} · Recharge {m.rechargeCompatibility.toLowerCase()}</TableCell>
-                      <TableCell className="text-xs">{m.lastVerifiedAt ? formatRelative(m.lastVerifiedAt) : "never"}</TableCell>
-                      <TableCell className="text-right"><VerifyMarkerButton markerId={m.id} /></TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+          <SectionHeader title="Reward fulfilment products on this store" description="Each physical reward item binds to ONE existing Shopify variant; every programme milestone that awards the item resolves to that same variant. Verification re-reads the product — no Shopify write ever occurs." />
+          <RewardBindingsTable rows={rows} canManage={canManage} />
         </section>
       </>
     );

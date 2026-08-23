@@ -18,7 +18,7 @@ export async function listExceptions(ctx: Ctx, filters: ExceptionFilters) {
     take: 200,
     include: {
       subscription: { include: { customer: true } },
-      action: { include: { fulfillmentMarker: { select: { name: true } } } },
+      action: { include: { rewardItem: { select: { name: true } }, fulfillmentMarker: { select: { name: true } } } },
       rule: { select: { id: true, name: true } },
       integration: { select: { id: true, displayName: true } },
     },

@@ -26,11 +26,12 @@ export function mapVariant(v: z.infer<typeof variantNodeSchema>): ShopifyVariant
     inventoryItemId: v.inventoryItem?.id ?? null,
     inventoryTracked: v.inventoryItem?.tracked ?? null,
     requiresShipping: v.inventoryItem?.requiresShipping ?? null,
+    availableForSale: v.availableForSale ?? null,
   };
 }
 
 export function mapProduct(p: z.infer<typeof productNodeSchema>, withPublication: boolean): ShopifyProductSummary {
-  const status = (["ACTIVE", "ARCHIVED", "DRAFT", "UNLISTED"].includes(p.status) ? p.status : "ACTIVE") as ShopifyProductStatus;
+  const status = (["ACTIVE", "ARCHIVED", "DRAFT", "UNLISTED"].includes(p.status) ? p.status : p.status) as ShopifyProductStatus;
   return {
     productId: gidToId(p.id),
     productGid: p.id,
@@ -42,6 +43,7 @@ export function mapProduct(p: z.infer<typeof productNodeSchema>, withPublication
     vendor: p.vendor ?? null,
     onlineStoreUrl: p.onlineStoreUrl ?? null,
     publishedOnlineStore: withPublication ? (p.publishedOnPublication ?? false) : null,
+    featuredImageUrl: p.featuredMedia?.preview?.image?.url ?? null,
     variants: p.variants.nodes.map(mapVariant),
     updatedAt: p.updatedAt ?? null,
   };

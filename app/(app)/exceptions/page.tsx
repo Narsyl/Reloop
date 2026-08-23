@@ -34,7 +34,7 @@ export default async function ExceptionsPage({ searchParams }: PageProps<"/excep
     subscription: e.subscription
       ? { id: e.subscription.id, productTitleSnapshot: e.subscription.productTitleSnapshot, customerLabel: customerName(e.subscription.customer) }
       : null,
-    action: e.action ? { id: e.action.id, markerName: e.action.fulfillmentMarker.name, targetCycle: e.action.targetCycle, targetChargeDate: e.action.targetChargeDate } : null,
+    action: e.action ? { id: e.action.id, markerName: e.action.rewardItem?.name ?? e.action.fulfillmentMarker?.name ?? "—", targetCycle: e.action.targetCycle, targetChargeDate: e.action.targetChargeDate } : null,
     rule: e.rule,
     integration: e.integration,
     metadata: (e.metadataJson as Record<string, unknown> | null) ?? null,

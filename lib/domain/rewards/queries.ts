@@ -7,7 +7,7 @@ import { analyzeMilestoneImpact } from "@/lib/domain/rules/impact";
 type Ctx = Pick<OrgContext, "organizationId">;
 
 export async function listRewardItems(ctx: Ctx) {
-  return dbFor(ctx).rewardItem.findMany({ orderBy: [{ active: "desc" }, { name: "asc" }], include: { _count: { select: { milestones: true, markers: true } } } });
+  return dbFor(ctx).rewardItem.findMany({ orderBy: [{ active: "desc" }, { name: "asc" }], include: { _count: { select: { milestones: true, externalBindings: true } } } });
 }
 
 export async function listRewardSchedules(ctx: Ctx) {
@@ -30,13 +30,12 @@ export async function getRewardScheduleDetail(ctx: Ctx, id: string) {
     include: { milestones: { include: { rewardItem: true, _count: { select: { actions: true } } }, orderBy: { cycleNumber: "asc" } }, programs: { select: { id: true, name: true, active: true }, orderBy: { name: "asc" } } },
   });
   if (!schedule) return null;
-  const [items, unassignedPrograms, markers, views] = await Promise.all([
+  const [items, unassignedPrograms, views] = await Promise.all([
     db.rewardItem.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     db.subscriptionProgram.findMany({ where: { rewardScheduleId: null, active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    db.fulfillmentMarker.findMany({ where: { active: true }, select: { id: true, name: true, title: true, sku: true, externalVariantId: true, placeholder: true, rewardItemId: true, integrationId: true, integration: { select: { displayName: true } } }, orderBy: { name: "asc" } }),
     Promise.all(schedule.programs.map((p) => resolveProgramRewards(ctx, p.id))),
   ]);
-  return { schedule, items, unassignedPrograms, markers, views: views as ProgramRewardView[] };
+  return { schedule, items, unassignedPrograms, views: views as ProgramRewardView[] };
 }
 
 /** Impact per (programme × milestone) under the milestone's own scope — live data, no persistence. */
@@ -45,7 +44,7 @@ export async function scheduleImpactMatrix(ctx: Ctx, views: ProgramRewardView[])
   for (const v of views) {
     for (const m of v.milestones) {
       if (m.executionMode !== "UPCOMING_RENEWAL") continue;
-      const impact = await analyzeMilestoneImpact(ctx, { programId: v.programId, cycleNumber: m.cycleNumber, fulfillmentMarkerId: m.marker?.id ?? null });
+      const impact = await analyzeMilestoneImpact(ctx, { programId: v.programId, cycleNumber: m.cycleNumber, fulfillmentMarkerId: null });
       const side = m.eligibilityScope === "CUSTOMER_PROGRAM" ? impact.customerProgram : impact.perSubscription;
       cells.push({
         programId: v.programId,

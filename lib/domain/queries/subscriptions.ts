@@ -56,7 +56,7 @@ export async function listSubscriptions(ctx: Ctx, filters: SubscriptionFilters) 
           where: { status: { in: ["PLANNED", "EXECUTING", "ATTACHED", "FAILED"] } },
           orderBy: { targetChargeAt: "asc" },
           take: 1,
-          include: { fulfillmentMarker: { select: { name: true } } },
+          include: { rewardItem: { select: { name: true } }, fulfillmentMarker: { select: { name: true } } },
         },
       },
     }),
@@ -86,7 +86,7 @@ export async function getSubscriptionDetail(ctx: Ctx, id: string) {
       orders: { orderBy: { processedAt: "asc" } },
       actions: {
         orderBy: [{ targetChargeAt: "desc" }, { createdAt: "desc" }],
-        include: { fulfillmentMarker: true, rule: { select: { id: true, name: true } }, journey: { select: { id: true, sequence: true } } },
+        include: { rewardItem: { select: { id: true, name: true } }, fulfillmentMarker: true, rule: { select: { id: true, name: true } }, journey: { select: { id: true, sequence: true } } },
       },
       exceptions: { where: { status: "OPEN" }, orderBy: { detectedAt: "desc" } },
     },

@@ -37,7 +37,7 @@ export async function listIntegrations(ctx: Ctx) {
       createdAt: true,
       pairedIntegrationId: true,
       settingsJson: true,
-      _count: { select: { subscriptions: true, products: true, customers: true, shopifyMarkers: true, fulfillmentMarkers: true } },
+      _count: { select: { subscriptions: true, products: true, customers: true, rewardBindings: true, fulfillmentMarkers: true } },
     },
   });
 }

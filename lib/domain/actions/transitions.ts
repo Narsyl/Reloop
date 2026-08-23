@@ -25,7 +25,9 @@ export type ActionCancelReason =
   | "MILESTONE_INACTIVE"
   | "MILESTONE_NOT_ASSIGNED"
   | "BINDING_MISSING"
-  | "BINDING_CHANGED";
+  | "BINDING_CHANGED"
+  | "REWARD_UNBOUND"
+  | "REWARD_CHANGED";
 
 export const CANCEL_REASON_LABEL: Record<ActionCancelReason, string> = {
   SUBSCRIPTION_NOT_ACTIVE: "Subscription no longer active",
@@ -45,7 +47,9 @@ export const CANCEL_REASON_LABEL: Record<ActionCancelReason, string> = {
   MILESTONE_INACTIVE: "Schedule milestone is inactive",
   MILESTONE_NOT_ASSIGNED: "Programme no longer uses this schedule milestone",
   BINDING_MISSING: "No marker bound for this programme milestone",
-  BINDING_CHANGED: "Programme marker binding changed (superseded)",
+  BINDING_CHANGED: "Programme marker binding changed (superseded) — legacy",
+  REWARD_UNBOUND: "Reward item has no usable Shopify binding for this store",
+  REWARD_CHANGED: "Milestone now awards a different reward item (superseded)",
 };
 
 /** Structural writer type so both the plain TransactionClient and the tenant-extended client fit. */
