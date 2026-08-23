@@ -36,3 +36,9 @@ the SQL into `prisma/migrations/<timestamp>_<name>/migration.sql` (add backfills
 `--force-reset`, and runs `scripts/db/claude-guard.cjs` as a `PreToolUse` hook that refuses the same patterns by regex
 (this also covers infix/compound forms and heredocs). Verified by attempting a harmless `echo "--shadow-database-url"` —
 it must be refused. The same rules are mirrored in the developer's working-directory `.claude/settings.json`.
+
+
+## Hand-authored constraints Prisma cannot express
+
+- `20260823180000_phase4b_reward_schedules`: CHECK `cycleNumber = 1 ⇔ executionMode = INITIAL_CHECKOUT` on `RewardScheduleMilestone`.
+- `20260823210000_phase4c_tenant_guards`: triggers `fulfillment_marker_tenant_guard` (marker.integrationId / shopifyIntegrationId must belong to the same organisation; shopifyIntegrationId must be a SHOPIFY integration) and `integration_pairing_tenant_guard` (pairedIntegrationId must be a same-organisation RECHARGE integration). Triggers/functions are invisible to `prisma migrate diff`, so they never show as drift; keep them in mind when writing fixtures.

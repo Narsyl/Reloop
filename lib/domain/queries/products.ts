@@ -43,6 +43,7 @@ export async function listMarkers(ctx: Ctx) {
       variant: { include: { product: { select: { id: true, title: true } } } },
       integration: { select: { id: true, displayName: true } },
       rewardItem: { select: { id: true, name: true } },
+      shopifyIntegration: { select: { id: true, displayName: true } },
       milestoneBindings: { where: { active: true }, select: { id: true, program: { select: { name: true } }, milestone: { select: { cycleNumber: true, schedule: { select: { name: true } } } } } },
       rules: { where: { status: { not: "ARCHIVED" } }, select: { id: true, name: true, status: true, cycleNumber: true, program: { select: { name: true } } } },
     },
@@ -59,4 +60,15 @@ export async function listMarkers(ctx: Ctx) {
 
 export async function countUnmappedSubscriptions(ctx: Ctx) {
   return dbFor(ctx).subscription.count({ where: { mappingStatus: "UNMAPPED", status: "ACTIVE" } });
+}
+
+/** Markers whose Shopify identity is verified through one Shopify integration (or whose Recharge store it serves). */
+export async function listMarkersForShopifyIntegration(ctx: Ctx, shopifyIntegrationId: string) {
+  const db = dbFor(ctx);
+  const shop = await db.integration.findUnique({ where: { id: shopifyIntegrationId }, select: { pairedIntegrationId: true } });
+  return db.fulfillmentMarker.findMany({
+    where: { OR: [{ shopifyIntegrationId }, ...(shop?.pairedIntegrationId ? [{ integrationId: shop.pairedIntegrationId }] : [])] },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, sku: true, placeholder: true, externalVariantId: true, shopifyStatus: true, shopifyPublishedOnlineStore: true, shopifyPrice: true, shopifyInventoryTracked: true, lastVerifiedAt: true, rechargeCompatibility: true, rewardItem: { select: { name: true } } },
+  });
 }

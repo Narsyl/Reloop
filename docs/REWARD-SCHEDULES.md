@@ -194,3 +194,8 @@ Existing live programmes **not** in either schedule and untouched: Shilajit Resi
 2. Whisk once per *programme* (V1 as framed) or once per *customer across the Schedule A family* (`CUSTOMER_SCHEDULE`)?
 3. Delivery-1 mechanism: starter kit inherently including the whisk, or storefront cart rule (theme work) — your call with the fulfilment/theme side; we record + verify only.
 4. Matcha and Soursop: approve mapping both continuous product ids into one programme each; Butterfly Pea variant of the coloured-powders product: exclude or map.
+
+
+## Marker creation (Phase 4c — implemented)
+
+Markers are created/adopted through the Shopify marker integration (see ARCHITECTURE §26): naming `<programme label> <delivery>` (e.g. "Morning Magic 2" — never the reward name), SKU `<PREFIX>-CYCLE-NN`, price 0.00, `UNLISTED`, published to the Online Store, inventory untracked, type "Fulfillment Marker", tag `subscription-ops-marker`; each marker names its reward item (`rewardItemId`) and carries the operational note. Canonical identity stays the Shopify variant id. Creation is explicit (preview → duplicate check → confirm per row); `rechargeCompatibility` stays UNVERIFIED until the Phase 6 controlled test.

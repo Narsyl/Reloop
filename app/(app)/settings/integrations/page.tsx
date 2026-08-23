@@ -8,6 +8,9 @@ import { formatDateTime, formatRelative, pluralize } from "@/lib/format";
 import { SectionHeader } from "@/components/layout/page-header";
 import { StatusBadge } from "@/components/status/status-badge";
 import { ConnectRechargeDialog } from "@/components/domain/connect-recharge-dialog";
+import { ConnectShopifyDialog, RecheckShopifyButton } from "@/components/domain/connect-shopify-dialog";
+import { ShopifyCapabilityPanel } from "@/components/domain/shopify-capability-panel";
+import type { ShopifyCapabilityReport } from "@/lib/integrations/shopify";
 import { IntegrationActions } from "@/components/domain/integration-actions";
 import { SyncStatus, type SyncStatusData } from "@/components/domain/sync-status";
 import type { CapabilityMap } from "@/lib/integrations/types";
@@ -22,14 +25,19 @@ export default async function IntegrationsPage() {
   const latest = await getLatestSyncs(ctx, integrations.map((i) => i.id));
   const canManage = hasRole(ctx, "ADMIN");
   const canOperate = hasRole(ctx, "OPERATOR");
-  const live = integrations.filter((i) => i.status !== "DISCONNECTED");
+  const live = integrations.filter((i) => i.status !== "DISCONNECTED" && i.provider === "RECHARGE");
+  const shopify = integrations.filter((i) => i.status !== "DISCONNECTED" && i.provider === "SHOPIFY");
   const disconnected = integrations.filter((i) => i.status === "DISCONNECTED");
+  const rechargeOptions = live.map((i) => ({ id: i.id, displayName: i.displayName }));
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <SectionHeader title="Subscription platforms" description="Connect the platform that bills your subscribers. Imports are read-only; nothing is written to the platform until a rule is activated." />
-        <ConnectRechargeDialog disabled={!canManage} />
+        <div className="flex flex-wrap items-center gap-2">
+          <ConnectRechargeDialog disabled={!canManage} />
+          <ConnectShopifyDialog rechargeIntegrations={rechargeOptions} disabled={!canManage || rechargeOptions.length === 0} />
+        </div>
       </div>
 
       {live.length === 0 && (
@@ -85,6 +93,41 @@ export default async function IntegrationsPage() {
                 <SyncStatus sync={syncData} compact />
               </div>
             )}
+          </div>
+        );
+      })}
+
+      <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
+        <SectionHeader title="Catalogue (Shopify)" description="Shopify is used only to discover, create and verify the fulfilment-marker products that one-times will reference. It never reads orders or customers and never edits orders; Recharge stays the subscription authority." />
+      </div>
+      {shopify.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No Shopify store connected. Connect one with a custom app limited to products + publications to generate the fulfilment markers.</p>
+      ) : null}
+      {shopify.map((i) => {
+        const report = (i.capabilitiesJson as ShopifyCapabilityReport | null) ?? null;
+        const settings = (i.settingsJson as { shopDomain?: string; store?: { name?: string } } | null) ?? null;
+        const paired = integrations.find((x) => x.id === i.pairedIntegrationId);
+        return (
+          <div key={i.id} className="rounded-xl border border-border bg-card">
+            <div className="flex flex-wrap items-start justify-between gap-4 p-5">
+              <div className="flex items-start gap-3">
+                <div className="flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground"><Plug className="size-5" /></div>
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link href={`/settings/integrations/${i.id}`} className="text-sm font-semibold hover:underline">{i.displayName}</Link>
+                    <span className="text-xs text-muted-foreground">Shopify · catalogue + markers only</span>
+                    <StatusBadge status={integrationStatus[i.status]} />
+                  </div>
+                  <div className="text-xs text-muted-foreground">{settings?.shopDomain ?? i.externalStoreId} · serves {paired ? paired.displayName : "no Recharge store (pair it)"} · {pluralize(i._count.shopifyMarkers, "marker")} verified here{i.capabilitiesCheckedAt ? ` · checked ${formatRelative(i.capabilitiesCheckedAt)}` : ""}</div>
+                  {i.lastErrorMessage && <div className="text-xs text-status-danger">Last error: {i.lastErrorMessage} ({formatDateTime(i.lastErrorAt, ctx.timezone)})</div>}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {canManage ? <RecheckShopifyButton integrationId={i.id} /> : null}
+                {canManage ? <ConnectShopifyDialog rechargeIntegrations={rechargeOptions} existing={{ shopDomain: settings?.shopDomain ?? i.externalStoreId, pairedIntegrationId: i.pairedIntegrationId }} /> : null}
+              </div>
+            </div>
+            {report ? <div className="border-t border-border px-5 py-4"><ShopifyCapabilityPanel report={report} /></div> : null}
           </div>
         );
       })}

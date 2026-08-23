@@ -138,6 +138,7 @@ model OrganizationMembership {
 
 enum IntegrationProvider {
   RECHARGE
+  SHOPIFY // catalogue + fulfilment-marker identity/verification ONLY (Phase 4c) — never orders, customers, fulfilments
 }
 
 enum IntegrationStatus {
@@ -169,10 +170,15 @@ model Integration {
   lastSuccessfulSyncAt  DateTime?
   lastErrorAt           DateTime?
   lastErrorMessage      String?
+  // Phase 4c: a SHOPIFY integration is paired with the RECHARGE integration whose one-times will reference its variants
+  pairedIntegrationId   String?
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
 
   organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pairedIntegration  Integration?        @relation("IntegrationPairing", fields: [pairedIntegrationId], references: [id], onDelete: SetNull)
+  pairedBy           Integration[]       @relation("IntegrationPairing")
+  shopifyMarkers     FulfillmentMarker[] @relation("MarkerShopifyIntegration")
   customers          Customer[]
   products           Product[]
   subscriptions      Subscription[]
@@ -278,6 +284,9 @@ model SubscriptionProgram {
   // lifecycle continuity (journeys, cycles) never depends on it.
   rewardScheduleId         String?
   rewardScheduleAssignedAt DateTime?
+  // Phase 4c: warehouse naming for this programme's fulfilment markers — "<markerLabel> <delivery>", SKU "<skuPrefix>-CYCLE-NN"
+  markerLabel              String?
+  skuPrefix                String?
 
   organization     Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   products         SubscriptionProgramProduct[]
@@ -322,38 +331,59 @@ enum MarkerSource {
 // variant id, scoped to ONE integration (a Shopify variant id from store A is never
 // usable for store B). SKU/title are operator-verification fields only.
 model FulfillmentMarker {
-  id                String       @id @default(cuid())
-  organizationId    String
-  integrationId     String
-  name              String
-  description       String?
-  variantId         String       @unique
-  externalVariantId String
-  externalProductId String?
-  title             String? // external item title as the fulfilment team sees it, e.g. "Morning Magic 2"
-  sku               String?
-  source            MarkerSource @default(MANUAL)
-  active            Boolean      @default(true)
+  id                          String                @id @default(cuid())
+  organizationId              String
+  integrationId               String
+  name                        String
+  description                 String?
+  variantId                   String                @unique
+  externalVariantId           String
+  externalProductId           String?
+  title                       String? // external item title as the fulfilment team sees it, e.g. "Morning Magic 2"
+  sku                         String?
+  source                      MarkerSource          @default(MANUAL)
+  active                      Boolean               @default(true)
   // Configuration-only stand-in (e.g. a discovered paid one-time used to validate a rule).
   // Never executable: READY rules and the planner refuse placeholder markers.
-  placeholder       Boolean      @default(false)
+  placeholder                 Boolean               @default(false)
   // Operational meaning (what physically happens) — organisation-owned RewardItem, e.g. "Cup".
-  rewardItemId      String?
-  operationalNote   String?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  rewardItemId                String?
+  operationalNote             String?
+  // Phase 4c — Shopify catalogue identity/verification (secondary to the canonical external variant id above).
+  // The Shopify integration is the catalogue side; `integrationId` stays the Recharge store that executes one-times.
+  shopifyIntegrationId        String?
+  shopifyStatus               String? // ACTIVE | UNLISTED | DRAFT | ARCHIVED as last read
+  shopifyPublishedOnlineStore Boolean?
+  shopifyPrice                String?
+  shopifyInventoryTracked     Boolean?
+  shopifyHandle               String?
+  lastVerifiedAt              DateTime?
+  verificationJson            Json? // last read snapshot + issues — debug/secondary only
+  rechargeCompatibility       RechargeCompatibility @default(UNVERIFIED)
+  createdAt                   DateTime              @default(now())
+  updatedAt                   DateTime              @updatedAt
 
-  organization      Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  integration       Integration              @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  variant           ProductVariant           @relation(fields: [variantId], references: [id], onDelete: Restrict)
-  rewardItem        RewardItem?              @relation(fields: [rewardItemId], references: [id], onDelete: SetNull)
-  milestoneBindings ProgramMilestoneMarker[]
-  rules             AutomationRule[]
-  actions           AutomationAction[]
+  organization       Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration        Integration              @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  shopifyIntegration Integration?             @relation("MarkerShopifyIntegration", fields: [shopifyIntegrationId], references: [id], onDelete: SetNull)
+  variant            ProductVariant           @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  rewardItem         RewardItem?              @relation(fields: [rewardItemId], references: [id], onDelete: SetNull)
+  milestoneBindings  ProgramMilestoneMarker[]
+  rules              AutomationRule[]
+  actions            AutomationAction[]
 
   @@unique([organizationId, name])
   @@unique([integrationId, externalVariantId])
+  @@unique([shopifyIntegrationId, externalVariantId])
   @@index([organizationId, active])
+}
+
+/// Whether Recharge's one-time API has been proven to accept this marker's Shopify state (UNLISTED + Online Store).
+/// Stays UNVERIFIED until the first controlled Recharge test (Phase 6).
+enum RechargeCompatibility {
+  UNVERIFIED
+  VERIFIED
+  INCOMPATIBLE
 }
 
 // ═══════════════════════════ Subscriptions & journeys ═══════════════════════════

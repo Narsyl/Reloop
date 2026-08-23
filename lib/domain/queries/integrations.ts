@@ -22,6 +22,8 @@ export async function getIntegrationDetail(ctx: Ctx, integrationId: string) {
       lastErrorAt: true,
       lastErrorMessage: true,
       createdAt: true,
+      pairedIntegrationId: true,
+      pairedIntegration: { select: { id: true, displayName: true, provider: true } },
     },
   });
   if (!integration) return null;

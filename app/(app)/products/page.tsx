@@ -4,6 +4,8 @@ import { Boxes, Tag } from "lucide-react";
 import { hasRole, requireOrg } from "@/lib/auth/tenancy";
 import { countUnmappedSubscriptions, listMarkers, listPrograms, listSubscriptionProducts } from "@/lib/domain/queries/products";
 import { listRewardItems } from "@/lib/domain/rewards/queries";
+import { listMissingMarkers } from "@/lib/domain/markers/shopify";
+import { MissingMarkersPanel, VerifyMarkerButton } from "@/components/domain/marker-shopify";
 import { activeStatus, mappingStatus, ruleStatus } from "@/lib/status";
 import { formatRelative, pluralize } from "@/lib/format";
 import { PageHeader, SectionHeader } from "@/components/layout/page-header";
@@ -21,7 +23,8 @@ export default async function ProductsPage({ searchParams }: PageProps<"/product
   const ctx = await requireOrg();
   const sp = await searchParams;
   const tab = typeof sp.tab === "string" && ["programs", "products", "markers"].includes(sp.tab) ? sp.tab : "programs";
-  const [programs, products, markers, unmapped, integrations, rewardItems] = await Promise.all([listPrograms(ctx), listSubscriptionProducts(ctx), listMarkers(ctx), countUnmappedSubscriptions(ctx), listIntegrations(ctx), listRewardItems(ctx)]);
+  const [programs, products, markers, unmapped, integrations, rewardItems, missingMarkers] = await Promise.all([listPrograms(ctx), listSubscriptionProducts(ctx), listMarkers(ctx), countUnmappedSubscriptions(ctx), listIntegrations(ctx), listRewardItems(ctx), listMissingMarkers(ctx)]);
+  const shopifyConnected = integrations.some((i) => i.provider === "SHOPIFY" && i.status === "CONNECTED");
   const rewardItemOptions = rewardItems.filter((r) => r.active).map((r) => ({ id: r.id, name: r.name }));
   const canManage = hasRole(ctx, "ADMIN");
   const programOptions = programs.filter((p) => p.active).map((p) => ({ id: p.id, name: p.name }));
@@ -153,6 +156,10 @@ export default async function ProductsPage({ searchParams }: PageProps<"/product
             <SectionHeader title="Fulfilment markers" description="The £0 items inserted into shipments. Identity = external variant id, scoped to one store. Saving a marker writes nothing to the platform." />
             {canManage && integrationOptions.length > 0 && <MarkerDialog integrations={integrationOptions} rewardItems={rewardItemOptions} />}
           </div>
+          <div className="mb-6 rounded-xl border border-border bg-card p-4">
+            <h3 className="mb-2 text-sm font-semibold">Missing fulfilment markers</h3>
+            <MissingMarkersPanel rows={missingMarkers} canManage={canManage} shopifyConnected={shopifyConnected} />
+          </div>
           {markers.length === 0 ? (
             <EmptyState
               icon={Tag}
@@ -175,9 +182,11 @@ export default async function ProductsPage({ searchParams }: PageProps<"/product
                       <p className="font-mono text-[11px] text-muted-foreground">variant {m.externalVariantId}{m.externalProductId ? ` · product ${m.externalProductId}` : ""} · {m.source.toLowerCase().replace(/_/g, " ")}</p>
                       <p className="text-xs">{m.rewardItem ? <><span className="font-medium">Reward: {m.rewardItem.name}</span>{m.operationalNote ? <span className="text-muted-foreground"> · {m.operationalNote}</span> : null}</> : <span className="text-status-warning">No reward item set — cannot be bound to a schedule milestone</span>}</p>
                       {m.milestoneBindings.length > 0 ? <p className="text-[11px] text-muted-foreground">Bound: {m.milestoneBindings.map((b) => `${b.program.name} · delivery ${b.milestone.cycleNumber} (${b.milestone.schedule.name})`).join(" · ")}</p> : null}
+                      <p className="text-[11px] text-muted-foreground">Shopify: {m.shopifyStatus ? <>{m.shopifyStatus}{m.shopifyPublishedOnlineStore === null ? "" : m.shopifyPublishedOnlineStore ? " · Online Store published" : " · NOT on Online Store"}{m.shopifyPrice ? ` · £${m.shopifyPrice}` : ""}{m.shopifyInventoryTracked ? " · inventory tracked" : ""}{m.lastVerifiedAt ? ` · verified ${m.lastVerifiedAt.toISOString().slice(0, 16).replace("T", " ")}` : ""}</> : "not verified yet"} · Recharge compatibility {m.rechargeCompatibility.toLowerCase()}</p>
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       <StatusBadge status={activeStatus(m.active)} />
+                      {!m.placeholder ? <VerifyMarkerButton markerId={m.id} /> : null}
                       {canManage && (
                         <div className="flex items-center gap-1">
                           <MarkerDialog
