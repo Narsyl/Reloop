@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(*--shadow-database-url*)",
+      "Bash(*prisma migrate reset*)",
+      "Bash(*prisma*migrate reset*)",
+      "Bash(*--force-reset*)",
+      "Bash(npx prisma migrate reset*)",
+      "Bash(prisma migrate reset*)",
+      "Bash(npx prisma db push --force-reset*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/db/claude-guard.cjs",
+            "timeout": 10,
+            "statusMessage": "Repo DB guard"
+          }
+        ]
+      }
+    ]
+  }
+}
