@@ -34,7 +34,7 @@ import { logger } from "@/lib/logging/logger";
 
 type Ctx = { organizationId: string };
 
-export type PlannerTrigger = "SYNC" | "MANUAL" | "CRON" | "TEST";
+export type PlannerTrigger = "SYNC" | "WEBHOOK" | "MANUAL" | "CRON" | "TEST";
 
 export type PlannerDecision = {
   milestoneId: string;

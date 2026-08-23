@@ -19,6 +19,8 @@ import { listRewardBindings } from "@/lib/domain/rewards/bindings";
 import type { ShopifyCapabilityReport } from "@/lib/integrations/shopify";
 import type { ShopifyIntegrationSettings } from "@/lib/domain/integrations/shopify";
 import { listPlannerRuns } from "@/lib/domain/queries/upcoming";
+import { getWebhookPanelState, listRecentWebhookEvents } from "@/lib/domain/webhooks/recharge";
+import { RegisterWebhooksControl, WebhookSecretDialog } from "@/components/domain/webhook-panel";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { CapabilityMap } from "@/lib/integrations/types";
 
@@ -100,6 +102,9 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
   const settings = (i.settingsJson as { scopes?: string[] | null; notes?: string[]; store?: { domain?: string | null; currency?: string | null; timezone?: string | null; email?: string | null } } | null) ?? null;
   const audit = i.status !== "DISCONNECTED" ? await getCycleAuditSample(ctx, i.id, 10) : [];
   const plannerRuns = i.status !== "DISCONNECTED" ? await listPlannerRuns(ctx, { integrationId: i.id, take: 8 }) : [];
+  const webhooks = i.status !== "DISCONNECTED" ? await getWebhookPanelState(ctx, i.id) : null;
+  const webhookEvents = i.status !== "DISCONNECTED" ? await listRecentWebhookEvents(ctx, i.id, 12) : [];
+  const defaultBaseUrl = webhooks?.registration?.baseUrl ?? "";
   const latest = syncs[0];
 
   return (
@@ -161,6 +166,55 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
           {latest ? <SyncStatus sync={toSyncData(latest)} /> : <EmptyState compact title="Not synced yet" description="Start the read-only import to bring in products, customers, subscriptions and order history." />}
         </div>
       </section>
+
+      {webhooks ? (
+        <section className="mb-6 space-y-3">
+          <SectionHeader
+            title="Webhooks"
+            description="Low-latency signals from Recharge (order + subscription topics). Every delivery is HMAC-validated with the client secret, persisted immutably, then processed asynchronously: a targeted authoritative Recharge GET feeds the SAME import/recalculation code the sync uses, and the planner reconciles. The 4-hourly incremental sync stays on as the backstop."
+            actions={hasRole(ctx, "ADMIN") ? <span className="inline-flex items-center gap-1"><WebhookSecretDialog integrationId={i.id} configured={webhooks.clientSecretConfigured} /><RegisterWebhooksControl integrationId={i.id} defaultBaseUrl={defaultBaseUrl} registered={!!webhooks.registration} secretConfigured={webhooks.clientSecretConfigured} /></span> : undefined}
+          />
+          <div className="grid gap-6 lg:grid-cols-2">
+            <DetailList>
+              <DetailRow label="Client secret">{webhooks.clientSecretConfigured ? <span className="text-status-success">configured ✓ (encrypted)</span> : <span className="text-status-danger">missing — deliveries cannot be validated</span>}</DetailRow>
+              <DetailRow label="Endpoint"><span className="font-mono text-xs">{webhooks.registration ? webhooks.registration.endpoint : webhooks.endpointPath}</span></DetailRow>
+              <DetailRow label="Registered">{webhooks.registration ? `${formatDateTime(new Date(webhooks.registration.registeredAt), ctx.timezone)} · base ${webhooks.registration.baseUrl}` : "not registered yet"}</DetailRow>
+              <DetailRow label="Topics">
+                <span className="flex flex-wrap gap-1">
+                  {webhooks.expectedTopics.map((t) => {
+                    const live = webhooks.registered?.some((w) => w.topic === t && (!webhooks.registration || w.address === webhooks.registration.endpoint));
+                    return <span key={t} className={`rounded px-1.5 py-0.5 font-mono text-[11px] ${live ? "bg-status-success-bg text-status-success" : "bg-muted text-muted-foreground"}`}>{t}{live ? " ✓" : ""}</span>;
+                  })}
+                </span>
+              </DetailRow>
+              {webhooks.registeredError ? <DetailRow label="Recharge /webhooks"><span className="text-status-warning">{webhooks.registeredError}</span></DetailRow> : null}
+              <DetailRow label="Latest received">{webhooks.latestReceived ? `${webhooks.latestReceived.eventType} · ${formatRelative(webhooks.latestReceived.receivedAt)}${webhooks.latestReceived.signatureValid ? "" : " · INVALID SIGNATURE"}` : "none yet"}</DetailRow>
+              <DetailRow label="Latest processed">{webhooks.latestProcessed?.processedAt ? `${webhooks.latestProcessed.eventType} · ${formatRelative(webhooks.latestProcessed.processedAt)}` : "none yet"}</DetailRow>
+              <DetailRow label="Health · 24h"><span className="tnum">{webhooks.health.received24h} received · {webhooks.health.processed24h} processed · {webhooks.health.failed24h} failed · {webhooks.health.invalidSignature24h} invalid signature · {webhooks.health.pending} pending</span></DetailRow>
+            </DetailList>
+            <div className="overflow-x-auto rounded-xl border border-border bg-card">
+              {webhookEvents.length === 0 ? (
+                <p className="p-4 text-sm text-muted-foreground">No deliveries yet. After registering, Recharge sends events as orders process and subscriptions change.</p>
+              ) : (
+                <Table>
+                  <TableHeader><TableRow><TableHead>Topic</TableHead><TableHead>Resource</TableHead><TableHead>Status</TableHead><TableHead>Received</TableHead><TableHead>Attempts</TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {webhookEvents.map((e) => (
+                      <TableRow key={e.id}>
+                        <TableCell className="font-mono text-xs">{e.eventType}{e.signatureValid ? "" : <span className="ml-1 text-status-danger">✗sig</span>}</TableCell>
+                        <TableCell className="font-mono text-xs">{e.externalEventId ?? "—"}</TableCell>
+                        <TableCell className="text-xs">{e.status.toLowerCase()}{e.lastError && e.status === "FAILED" ? <span className="block max-w-56 truncate text-[11px] text-status-danger" title={e.lastError}>{e.lastError}</span> : null}</TableCell>
+                        <TableCell className="text-xs">{formatRelative(e.receivedAt)}{e.processedAt ? ` · done ${formatRelative(e.processedAt)}` : ""}</TableCell>
+                        <TableCell className="tnum text-xs">{e.attemptCount}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       {i.status !== "DISCONNECTED" ? (
         <section className="space-y-3">

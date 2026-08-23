@@ -101,9 +101,22 @@ export class RechargeClient {
   }
 
   /**
-   * Generic request — PRIVATE. The only public verbs on this client are `get` and `paginate`
-   * (both GET). Write verbs will be added deliberately, as named public methods, in the live phase;
-   * until then no code path can reach POST/PUT/DELETE.
+   * Webhook SUBSCRIPTION management (Phase 5) — the ONLY non-GET surface on this client.
+   * Allowlisted to `/webhooks` and `/webhooks/{id}` exactly; every other path (and therefore
+   * /onetimes, /subscriptions, /orders, …) is refused before any HTTP happens. This manages which
+   * notifications Recharge sends us; it never touches store/customer/subscription data.
+   */
+  async webhookAdmin<T = unknown>(method: "POST" | "DELETE", path: string, opts: Omit<RequestOptions<T>, "method"> = {}): Promise<T> {
+    if (!/^\/webhooks(\/\d+)?$/.test(path)) {
+      throw new RechargeError("VALIDATION_ERROR", `Refused: ${method} ${path} — only /webhooks and /webhooks/{id} are writable (webhook subscription management). Store data writes (e.g. /onetimes) are not reachable from this client.`, { method, path, correlationId: this.correlationId });
+    }
+    return this.request<T>(path, { ...opts, method });
+  }
+
+  /**
+   * Generic request — PRIVATE. The public verbs on this client are `get`/`paginate` (GET) and
+   * `webhookAdmin` (POST/DELETE strictly on /webhooks). Store-data write verbs will be added
+   * deliberately, as named public methods, in the live phase; until then no code path can reach them.
    */
   private async request<T = unknown>(path: string, opts: RequestOptions<T> = {}): Promise<T> {
     const method = opts.method ?? "GET";

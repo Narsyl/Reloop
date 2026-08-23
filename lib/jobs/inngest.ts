@@ -10,7 +10,7 @@ import { z } from "zod";
  */
 export const inngest = new Inngest({ id: "subscription-ops" });
 
-/** A webhook delivery was persisted as an IntegrationEvent and needs processing. (Phase 6) */
+/** A webhook delivery was persisted as an IntegrationEvent and needs processing. (Phase 5) */
 export const integrationEventReceived = eventType("integration/event.received", {
   schema: z.object({ integrationEventId: z.string(), organizationId: z.string(), integrationId: z.string() }),
 });
@@ -32,7 +32,7 @@ export const integrationSyncRequested = eventType("integration/sync.requested", 
 
 /** Program mappings changed — recalculate journeys for an integration. */
 export const automationPlanRequested = eventType("automation/plan.requested", {
-  schema: z.object({ integrationId: z.string(), organizationId: z.string(), trigger: z.enum(["SYNC", "MANUAL", "CRON", "TEST"]) }),
+  schema: z.object({ integrationId: z.string(), organizationId: z.string(), trigger: z.enum(["SYNC", "WEBHOOK", "MANUAL", "CRON", "TEST"]) }),
 });
 
 export const journeysRecalculateRequested = eventType("journeys/recalculate.requested", {

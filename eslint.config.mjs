@@ -31,7 +31,7 @@ const eslintConfig = defineConfig([
   },
   // Explicit, reviewed exceptions (each resolves the organisation itself before querying).
   {
-    files: ["lib/domain/organizations/actions.ts", "lib/domain/queries/settings.ts"],
+    files: ["lib/domain/organizations/actions.ts", "lib/domain/queries/settings.ts", "app/api/webhooks/**/*.ts"],
     rules: { "no-restricted-imports": "off" },
   },
 ]);

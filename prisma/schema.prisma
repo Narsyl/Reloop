@@ -714,7 +714,7 @@ model PlannerRun {
   organizationId String
   integrationId  String
   status         PlannerRunStatus @default(RUNNING)
-  trigger        String // SYNC | MANUAL | CRON | TEST
+  trigger        String // SYNC | WEBHOOK | MANUAL | CRON | TEST
   automationMode AutomationMode
   startedAt      DateTime         @default(now())
   finishedAt     DateTime?

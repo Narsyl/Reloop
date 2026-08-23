@@ -156,12 +156,20 @@ export async function importSubscriptionsPage(
   cursor: string | null,
   updatedSince?: Date | null,
 ): Promise<PageResult> {
-  const db = dbFor(ctx);
   const iter = connector.listSubscriptions({ status, startCursor: cursor, updatedSince: updatedSince ?? undefined });
   const page = await iter.next();
   if (page.done) return { nextCursor: null, items: 0, delta: {} };
   const { items, nextCursor } = page.value;
+  const { active } = await upsertConnectorSubscriptions(ctx, integrationId, items);
+  return { nextCursor, items: items.length, delta: { subscriptions: items.length, subscriptionsActive: active, subscriptionsInactive: items.length - active } };
+}
 
+/**
+ * THE subscription import path — shared verbatim by the sync stages and the webhook processor, so
+ * a webhook can never disagree with a sync about how a subscription is normalised/upserted.
+ */
+export async function upsertConnectorSubscriptions(ctx: Ctx & { timezone: string }, integrationId: string, items: ConnectorSubscription[]): Promise<{ active: number; subscriptionIds: string[] }> {
+  const db = dbFor(ctx);
   // Derive catalogue rows from the subscriptions themselves (the only product source on
   // Shopify-checkout stores, and a harmless confirmation elsewhere). Titles from a
   // live subscription never overwrite a title that /products already provided.
@@ -180,6 +188,7 @@ export async function importSubscriptionsPage(
   const productMap = new Map(products.map((p) => [p.externalProductId, p]));
 
   let active = 0;
+  const subscriptionIds: string[] = [];
   for (const s of items) {
     const internalStatus = toInternalStatus(s.status);
     if (internalStatus === "ACTIVE") active++;
@@ -210,13 +219,15 @@ export async function importSubscriptionsPage(
       providerData: (s.providerData ?? undefined) as Prisma.InputJsonValue | undefined,
       lastSyncedAt: new Date(),
     };
-    await db.subscription.upsert({
+    const row = await db.subscription.upsert({
       where: { integrationId_externalSubscriptionId: { integrationId, externalSubscriptionId: s.externalSubscriptionId } },
       create: { organizationId: ctx.organizationId, integrationId, externalSubscriptionId: s.externalSubscriptionId, ...common },
       update: common,
+      select: { id: true },
     });
+    subscriptionIds.push(row.id);
   }
-  return { nextCursor, items: items.length, delta: { subscriptions: items.length, subscriptionsActive: active, subscriptionsInactive: items.length - active } };
+  return { active, subscriptionIds };
 }
 
 // ── orders ─────────────────────────────────────────────────────────────────
@@ -226,12 +237,21 @@ export async function importSubscriptionsPage(
  * Only `status === "success"` lines are stored — the definition of a cycle.
  */
 export async function importOrdersPage(ctx: Ctx, connector: RechargeConnector, integrationId: string, cursor: string | null, updatedSince?: Date | null): Promise<PageResult> {
-  const db = dbFor(ctx);
   const iter = connector.listOrders({ status: "success", startCursor: cursor, updatedSince: updatedSince ?? undefined });
   const page = await iter.next();
   if (page.done) return { nextCursor: null, items: 0, delta: {} };
   const { items, nextCursor } = page.value;
+  const { lines, unlinked } = await upsertConnectorOrders(ctx, integrationId, items);
+  return { nextCursor, items: items.length, delta: { orders: items.length, orderLines: lines, orderLinesUnlinked: unlinked } };
+}
 
+/**
+ * THE successful-order-evidence import path — shared verbatim by the sync stages and the webhook
+ * processor. Only status === "success" lines become SubscriptionOrder rows (the definition of a
+ * cycle) with exact purchase_item_id isolation; running it twice changes nothing.
+ */
+export async function upsertConnectorOrders(ctx: Ctx, integrationId: string, items: ConnectorOrder[]): Promise<{ lines: number; unlinked: number; externalSubscriptionIds: string[] }> {
+  const db = dbFor(ctx);
   const lines = collectSubscriptionLines(items);
   // historical products/variants that no live subscription references any more
   await deriveCatalogue(
@@ -253,7 +273,7 @@ export async function importOrdersPage(ctx: Ctx, connector: RechargeConnector, i
       update: { subscriptionId, ...l.data },
     });
   }
-  return { nextCursor, items: items.length, delta: { orders: items.length, orderLines: lines.length, orderLinesUnlinked: unlinked } };
+  return { lines: lines.length, unlinked, externalSubscriptionIds: [...new Set(lines.map((l) => l.externalSubscriptionId))] };
 }
 
 type SubscriptionLine = {
