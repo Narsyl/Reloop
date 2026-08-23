@@ -20,6 +20,7 @@ import { bindingsForRechargeStore } from "@/lib/domain/rewards/bindings";
 import type { ConnectorOnetime, ConnectorSubscription } from "@/lib/integrations/types";
 import { isRechargeError } from "@/lib/integrations/recharge/errors";
 import { logger } from "@/lib/logging/logger";
+import { buildOnetimeBody } from "./payload";
 
 type Ctx = { organizationId: string };
 
@@ -213,16 +214,10 @@ export async function dryRunAction(ctx: Ctx, actionId: string, opts: { now?: Dat
 
   const first = blockers[0] ?? null;
   const addressId = external.externalAddressId ?? a.subscription.externalAddressId;
-  const body: Record<string, unknown> = {
-    address_id: /^[0-9]+$/.test(addressId) ? Number(addressId) : addressId,
-    next_charge_scheduled_at: a.targetChargeDate,
-    external_variant_id: { ecommerce: target?.externalVariantId ?? null },
-    ...(target?.externalProductId ? { external_product_id: { ecommerce: target.externalProductId } } : {}),
-    product_title: target?.title ?? a.rewardItem?.name ?? null,
-    quantity: 1,
-    price: "0.00",
-    properties: [{ name: "_subscription_ops_action", value: a.id }, ...(a.rewardItem ? [{ name: "_subscription_ops_reward", value: a.rewardItem.name }] : [])],
-  };
+  // the SAME builder the executor uses — the preview IS the payload
+  const body: Record<string, unknown> = target
+    ? (buildOnetimeBody({ addressId, targetChargeDate: a.targetChargeDate ?? "", target: { externalVariantId: target.externalVariantId, externalProductId: target.externalProductId, title: target.title }, actionId: a.id, rewardName: a.rewardItem?.name ?? null }) as unknown as Record<string, unknown>)
+    : { address_id: addressId, next_charge_scheduled_at: a.targetChargeDate, external_variant_id: { ecommerce: null }, product_title: a.rewardItem?.name ?? null, quantity: 1, price: "0.00", properties: [{ name: "_subscription_ops_action", value: a.id }] };
   const result: DryRunResult = {
     actionId: a.id,
     ranAt: now.toISOString(),

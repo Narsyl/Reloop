@@ -114,9 +114,30 @@ export class RechargeClient {
   }
 
   /**
-   * Generic request — PRIVATE. The public verbs on this client are `get`/`paginate` (GET) and
-   * `webhookAdmin` (POST/DELETE strictly on /webhooks). Store-data write verbs will be added
-   * deliberately, as named public methods, in the live phase; until then no code path can reach them.
+   * Phase 6 — the ONE business-data write this platform can perform: POST /onetimes.
+   * The path is hard-coded (no caller-supplied path), the body is typed by the caller, and
+   * maxRetries is forced to 0: a write is NEVER retried blindly — an ambiguous outcome is resolved
+   * by read reconciliation, not by re-POSTing.
+   */
+  async createOnetime<T = unknown>(body: Record<string, unknown>, opts: Omit<RequestOptions<T>, "method" | "body" | "maxRetries"> = {}): Promise<T> {
+    return this.request<T>("/onetimes", { ...opts, method: "POST", body, maxRetries: 0 });
+  }
+
+  /**
+   * Phase 6 rollback companion — DELETE strictly `/onetimes/{id}`. Exists only so a controlled-test
+   * one-time can be removed by explicit operator action; no other resource is deletable.
+   */
+  async deleteOnetime(externalOnetimeId: string): Promise<void> {
+    if (!/^\d+$/.test(externalOnetimeId)) {
+      throw new RechargeError("VALIDATION_ERROR", `Refused: deleteOnetime requires a numeric one-time id (got "${externalOnetimeId}")`, { method: "DELETE", path: "/onetimes/{id}", correlationId: this.correlationId });
+    }
+    await this.request(`/onetimes/${externalOnetimeId}`, { method: "DELETE", maxRetries: 0 });
+  }
+
+  /**
+   * Generic request — PRIVATE. The public surface of this client is: `get`/`paginate` (GET),
+   * `webhookAdmin` (POST/DELETE strictly on /webhooks), `createOnetime` (POST strictly /onetimes)
+   * and `deleteOnetime` (DELETE strictly /onetimes/{id}). No other mutation is reachable.
    */
   private async request<T = unknown>(path: string, opts: RequestOptions<T> = {}): Promise<T> {
     const method = opts.method ?? "GET";

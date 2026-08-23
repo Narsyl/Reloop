@@ -101,6 +101,7 @@ export type ConnectorOnetime = {
   externalVariantId: string | null;
   nextChargeDate: string | null;
   productTitle: string | null;
+  properties: { name: string; value: string }[] | null;
   sku: string | null;
   quantity: number;
   price: string | null;

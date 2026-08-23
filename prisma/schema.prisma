@@ -106,6 +106,7 @@ model Organization {
   syncs              IntegrationSync[]
   subscriptionOrders SubscriptionOrder[]
   plannerRuns        PlannerRun[]
+  controlledTests    ControlledTestAuthorization[]
   rewardItems        RewardItem[]
   rewardBindings     RewardItemExternalBinding[]
   rewardSchedules    RewardSchedule[]
@@ -180,9 +181,9 @@ model Integration {
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
 
-  organization       Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  pairedIntegration  Integration?                @relation("IntegrationPairing", fields: [pairedIntegrationId], references: [id], onDelete: SetNull)
-  pairedBy           Integration[]               @relation("IntegrationPairing")
+  organization       Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pairedIntegration  Integration?                  @relation("IntegrationPairing", fields: [pairedIntegrationId], references: [id], onDelete: SetNull)
+  pairedBy           Integration[]                 @relation("IntegrationPairing")
   rewardBindings     RewardItemExternalBinding[]
   customers          Customer[]
   products           Product[]
@@ -194,6 +195,7 @@ model Integration {
   subscriptionOrders SubscriptionOrder[]
   fulfillmentMarkers FulfillmentMarker[]
   plannerRuns        PlannerRun[]
+  controlledTests    ControlledTestAuthorization[]
 
   @@unique([organizationId, provider, externalStoreId])
   @@index([organizationId])
@@ -681,18 +683,19 @@ model AutomationAction {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  organization      Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  integration       Integration              @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  rule              AutomationRule?          @relation(fields: [ruleId], references: [id], onDelete: SetNull)
-  subscription      Subscription             @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
-  journey           SubscriptionJourney      @relation(fields: [journeyId], references: [id], onDelete: Cascade)
-  rewardItem        RewardItem?              @relation(fields: [rewardItemId], references: [id], onDelete: Restrict)
-  fulfillmentMarker FulfillmentMarker?       @relation(fields: [fulfillmentMarkerId], references: [id], onDelete: Restrict)
-  fulfilledByCycle  JourneyCycle?            @relation(fields: [fulfilledByCycleId], references: [id], onDelete: SetNull)
-  triggeredByEvent  IntegrationEvent?        @relation(fields: [triggeredByEventId], references: [id], onDelete: SetNull)
-  plannerRun        PlannerRun?              @relation(fields: [plannerRunId], references: [id], onDelete: SetNull)
-  milestone         RewardScheduleMilestone? @relation(fields: [rewardScheduleMilestoneId], references: [id], onDelete: SetNull)
-  program           SubscriptionProgram?     @relation(fields: [programId], references: [id], onDelete: SetNull)
+  organization      Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration       Integration                  @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  rule              AutomationRule?              @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  subscription      Subscription                 @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  journey           SubscriptionJourney          @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  rewardItem        RewardItem?                  @relation(fields: [rewardItemId], references: [id], onDelete: Restrict)
+  fulfillmentMarker FulfillmentMarker?           @relation(fields: [fulfillmentMarkerId], references: [id], onDelete: Restrict)
+  fulfilledByCycle  JourneyCycle?                @relation(fields: [fulfilledByCycleId], references: [id], onDelete: SetNull)
+  triggeredByEvent  IntegrationEvent?            @relation(fields: [triggeredByEventId], references: [id], onDelete: SetNull)
+  plannerRun        PlannerRun?                  @relation(fields: [plannerRunId], references: [id], onDelete: SetNull)
+  controlledTest    ControlledTestAuthorization?
+  milestone         RewardScheduleMilestone?     @relation(fields: [rewardScheduleMilestoneId], references: [id], onDelete: SetNull)
+  program           SubscriptionProgram?         @relation(fields: [programId], references: [id], onDelete: SetNull)
   exceptions        Exception[]
 
   @@index([organizationId, status, targetChargeAt])
@@ -709,6 +712,41 @@ enum PlannerRunStatus {
 /// One execution of the action planner for an integration (after a sync, on demand, or by cron).
 /// History for the Upcoming page and for proving idempotency: counts of evaluated / planned /
 /// replanned / cancelled / superseded / skipped.
+enum ControlledTestStatus {
+  ARMED
+  CONSUMED
+  CLEARED
+  EXPIRED
+}
+
+/// Phase 6: the ONLY road to a Recharge one-time write. Exactly one AutomationAction may be armed
+/// per integration (armedKey UNIQUE = integrationId while ARMED, null afterwards — same pattern as
+/// liveKey), the authorization is single-use (claimed atomically with the PLANNED→EXECUTING claim),
+/// and it expires. LIVE automation stays refused; nothing can execute without an ARMED row.
+model ControlledTestAuthorization {
+  id             String               @id @default(cuid())
+  organizationId String
+  integrationId  String
+  actionId       String               @unique
+  status         ControlledTestStatus @default(ARMED)
+  /// = integrationId while status is ARMED; null otherwise. UNIQUE ⇒ at most one armed action per integration.
+  armedKey       String?              @unique
+  armedById      String?
+  armedAt        DateTime             @default(now())
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  clearedAt      DateTime?
+  outcome        String? // ATTACHED | FAILED | ADOPTED | ROLLED_BACK | EXPIRED | CLEARED
+  resultJson     Json?
+  note           String?
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration  Integration      @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  action       AutomationAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+}
+
 model PlannerRun {
   id             String           @id @default(cuid())
   organizationId String

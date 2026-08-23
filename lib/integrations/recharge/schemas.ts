@@ -153,8 +153,10 @@ export const rcOnetimeSchema = z.looseObject({
   created_at: dateString,
   external_product_id: externalIdSchema.optional(),
   external_variant_id: externalIdSchema.optional(),
+  properties: z.array(z.looseObject({ name: z.string(), value: z.unknown() })).nullable().optional(),
 });
 export type RcOnetime = z.infer<typeof rcOnetimeSchema>;
+export const rcOnetimeEnvelopeSchema = z.looseObject({ onetime: rcOnetimeSchema });
 
 // ── webhooks ───────────────────────────────────────────────────────────────
 export const rcWebhookSchema = z.looseObject({

@@ -414,7 +414,7 @@ describe("dry run", () => {
 
   it("reports ADOPT when an identical one-time already exists on the address", async () => {
     const a = (await liveActions()).find((x) => x.subscription.externalSubscriptionId === "EE-1")!;
-    const existing: ConnectorOnetime = { externalOnetimeId: "ot-1", externalAddressId: "addr-EE-1", externalCustomerId: "c-ee", externalProductId: "mk-77004", externalVariantId: "77004", nextChargeDate: "2026-09-21", productTitle: "Evening Elixir 2", sku: "SKU-77004", quantity: 1, price: "0.00", externalCreatedAt: null };
+    const existing: ConnectorOnetime = { externalOnetimeId: "ot-1", externalAddressId: "addr-EE-1", externalCustomerId: "c-ee", externalProductId: "mk-77004", externalVariantId: "77004", nextChargeDate: "2026-09-21", productTitle: "Evening Elixir 2", sku: "SKU-77004", quantity: 1, price: "0.00", properties: null, externalCreatedAt: null };
     const r = await dryRunAction(ctx, a.id, { now: NOW, persist: false, connector: fake(extSub(), [existing]) });
     expect(r.wouldExecute).toBe(true);
     expect(r.operation).toBe("ADOPT_EXISTING_ONETIME");

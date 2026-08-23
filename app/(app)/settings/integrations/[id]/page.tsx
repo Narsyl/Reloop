@@ -156,6 +156,12 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
               })}
             </ul>
           </div>
+          <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
+            <span className="font-medium">One-time products</span>
+            <span className="ml-2">Read {caps && caps.onetimes && caps.onetimes !== "unavailable" && caps.onetimes !== "unknown" ? <span className="text-status-success">✓</span> : <span className="text-status-danger">✗</span>}</span>
+            <span className="ml-3">Write {caps?.onetimes === "read_write" ? <span className="text-status-success">✓</span> : <span className="text-status-danger">Missing</span>}</span>
+            <span className="ml-2 block text-xs text-muted-foreground">{caps?.onetimes === "read_write" ? "write_subscriptions is granted — the Phase 6 controlled one-time write is possible (still requires an explicitly armed action; LIVE stays refused)." : "POST /onetimes needs the write_subscriptions permission on the Recharge token. Update the token's permissions in Recharge, then Test connection again — no write is attempted until granted."}</span>
+          </p>
           {settings?.notes && settings.notes.length > 0 && (
             <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">{settings.notes.map((n, idx) => <li key={idx}>{n}</li>)}</ul>
           )}

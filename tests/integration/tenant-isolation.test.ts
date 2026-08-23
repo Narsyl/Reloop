@@ -140,6 +140,11 @@ async function seedOrg(org: { id: string; slug: string; name: string }, userId: 
   });
   ids.AutomationAction = action.id;
 
+  const controlled = await prisma.controlledTestAuthorization.create({
+    data: { organizationId: org.id, integrationId: integ.id, actionId: action.id, status: "CLEARED", armedKey: null, expiresAt: new Date(Date.now() + 3600_000), clearedAt: new Date(), outcome: "CLEARED" },
+  });
+  ids.ControlledTestAuthorization = controlled.id;
+
   const event = await prisma.integrationEvent.create({
     data: {
       organizationId: org.id,

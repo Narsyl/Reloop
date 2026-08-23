@@ -1,4 +1,6 @@
 import Link from "next/link";
+import Image from "next/image";
+import relooplogo from "@/app/relooplogo-trimmed.png";
 import { requireOrg, listMemberships } from "@/lib/auth/tenancy";
 import { requireUser } from "@/lib/auth/session";
 import { getNavCounts } from "@/lib/domain/queries/overview";
@@ -25,10 +27,9 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   return (
     <div className="flex min-h-screen">
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
-        <div className="flex h-14 items-center px-4">
-          <Link href="/" className="flex items-center gap-2 text-sm font-semibold tracking-tight text-sidebar-foreground">
-            <span className="flex size-6 items-center justify-center rounded-md bg-primary text-[11px] font-bold text-primary-foreground">S</span>
-            Subscription Ops
+        <div className="flex h-16 items-center justify-center px-2">
+          <Link href="/" className="flex items-center justify-center text-sidebar-foreground">
+            <Image src={relooplogo} alt="Reloop" className="h-11 w-auto object-contain" priority />
           </Link>
         </div>
         <div className="flex flex-1 flex-col overflow-y-auto py-2">
@@ -43,7 +44,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-4 border-b border-border bg-background/80 px-4 backdrop-blur md:px-8">
           <div className="flex items-center gap-3 md:hidden">
             <Link href="/" className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-              <span className="flex size-6 items-center justify-center rounded-md bg-primary text-[11px] font-bold text-primary-foreground">S</span>
+              <Image src={relooplogo} alt="Reloop" className="h-7 w-auto object-contain" priority />
               {ctx.organizationName}
             </Link>
           </div>

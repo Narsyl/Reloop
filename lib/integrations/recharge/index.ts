@@ -9,7 +9,7 @@ import { listCustomers } from "./customers";
 import { listProducts } from "./products";
 import { getSubscription, listSubscriptions, SUBSCRIPTION_STATUSES, type SubscriptionStatusFilter } from "./subscriptions";
 import { getOrder, listOrders, type OrderStatusFilter } from "./orders";
-import { listOnetimes } from "./onetimes";
+import { createOnetime, getOnetime, listOnetimes, type RechargeOnetimeCreateBody } from "./onetimes";
 import { createWebhookSubscription, deleteWebhookSubscription, listRegisteredWebhooks } from "./webhooks";
 import type { ListOptions } from "@/lib/integrations/types";
 
@@ -28,7 +28,11 @@ export function createRechargeConnector(client: RechargeClient) {
     listOrders: (opts?: ListOptions & { status?: OrderStatusFilter; purchaseItemId?: string; customerId?: string; startCursor?: string | null }) => listOrders(client, opts),
     getOrder: (id: string) => getOrder(client, id),
     listOnetimes: (opts?: ListOptions & { externalAddressId?: string; externalCustomerId?: string; startCursor?: string | null }) => listOnetimes(client, opts),
-    // Phase 5: webhook SUBSCRIPTION management (the only non-GET surface; /webhooks paths only)
+    getOnetime: (id: string) => getOnetime(client, id),
+    // Phase 6: the platform's ONLY business-data write (+ explicit controlled-test rollback delete)
+    createOnetime: (body: RechargeOnetimeCreateBody) => createOnetime(client, body),
+    deleteOnetime: (id: string) => client.deleteOnetime(id),
+    // Phase 5: webhook SUBSCRIPTION management (POST/DELETE strictly on /webhooks paths)
     listWebhooks: () => listRegisteredWebhooks(client),
     createWebhook: (input: { address: string; topic: string }) => createWebhookSubscription(client, input),
     deleteWebhook: (id: string) => deleteWebhookSubscription(client, id),

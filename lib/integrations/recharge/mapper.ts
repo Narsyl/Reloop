@@ -200,6 +200,7 @@ export function mapOnetime(t: RcOnetime): ConnectorOnetime {
     sku: t.sku ?? null,
     quantity: num(t.quantity, 1),
     price: decimalString(t.price),
+    properties: t.properties ? t.properties.map((p) => ({ name: p.name, value: typeof p.value === "string" ? p.value : JSON.stringify(p.value ?? null) })) : null,
     externalCreatedAt: parseDate(t.created_at),
   };
 }
