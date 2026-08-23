@@ -50,9 +50,10 @@ async function main() {
     let shape = "";
     if (keyOk) {
       try {
-        const c = decryptCredentials<{ apiToken?: string; clientSecret?: string | null }>(i.encryptedCredentials, i.id);
-        decrypts = typeof c.apiToken === "string" && c.apiToken.length > 10;
-        shape = `apiToken ${c.apiToken ? `${c.apiToken.length} chars` : "missing"}, clientSecret ${c.clientSecret ? "present" : "none"}`;
+        const c = decryptCredentials<{ apiToken?: string; clientSecret?: string | null; clientId?: string; accessToken?: string; authMode?: string }>(i.encryptedCredentials, i.id);
+        // provider-aware: RECHARGE carries apiToken; SHOPIFY (client credentials) carries clientId+clientSecret (or an accessToken)
+        decrypts = i.provider === "SHOPIFY" ? (typeof c.clientSecret === "string" && c.clientSecret.length > 5) || (typeof c.accessToken === "string" && c.accessToken.length > 10) : typeof c.apiToken === "string" && c.apiToken.length > 10;
+        shape = i.provider === "SHOPIFY" ? `authMode ${c.authMode ?? "?"}, clientId ${c.clientId ? "present" : "none"}, clientSecret ${c.clientSecret ? "present" : "none"}` : `apiToken ${c.apiToken ? `${c.apiToken.length} chars` : "missing"}, clientSecret ${c.clientSecret ? "present" : "none"}`;
       } catch (e) {
         shape = String(e).slice(0, 80);
       }
@@ -86,8 +87,11 @@ async function main() {
   add("sync history", syncs.length > 0, syncs.map((s) => `${s.createdAt.toISOString().slice(0, 16)} ${s.kind} ${s.status}`).join(" | ") || "none");
   cmp("activityLogs", await prisma.activityLog.count({ where: O }));
   cmp("exceptions.open", await prisma.exception.count({ where: { ...O, status: "OPEN" } }));
-  const actions = await prisma.automationAction.count({ where: O });
-  add("AutomationAction rows", actions === (expected.actions ?? 0), `${actions}`);
+  const actions = await prisma.automationAction.groupBy({ by: ["status"], where: O, _count: { _all: true } });
+  const actionCounts = actions.map((a) => `${a.status} ${a._count._all}`).join(", ") || "0";
+  // Planned/cancelled/superseded dry-run rows are normal; anything that implies a WRITE happened is not (pre-Phase 6).
+  const executed = await prisma.automationAction.count({ where: { ...O, OR: [{ status: { in: ["EXECUTING", "ATTACHED", "FULFILLED"] } }, { executedAt: { not: null } }, { externalObjectId: { not: null } }] } });
+  add("AutomationAction rows (no executed/attached before Phase 6)", executed === 0, `${actionCounts}${executed ? ` · ${executed} EXECUTED/ATTACHED ← unexpected` : ""}`);
   cmp("plannerRuns", await prisma.plannerRun.count({ where: O }).catch(() => -1));
 
   // natural-key uniqueness (DB-enforced, but verify the restored data honours it)
