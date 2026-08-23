@@ -11,6 +11,8 @@ import { EmptyState } from "@/components/data/empty-state";
 import { StatusBadge } from "@/components/status/status-badge";
 import { IntegrationActions } from "@/components/domain/integration-actions";
 import { SyncStatus, type SyncStatusData } from "@/components/domain/sync-status";
+import { AutomationModeControl, RunPlannerButton } from "@/components/domain/automation-panel";
+import { listPlannerRuns } from "@/lib/domain/queries/upcoming";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { CapabilityMap } from "@/lib/integrations/types";
 
@@ -46,6 +48,7 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
   const requiredOk = caps ? REQUIRED.every((c) => caps[c.key] !== "unavailable" && caps[c.key] !== "unknown") : false;
   const settings = (i.settingsJson as { scopes?: string[] | null; notes?: string[]; store?: { domain?: string | null; currency?: string | null; timezone?: string | null; email?: string | null } } | null) ?? null;
   const audit = i.status !== "DISCONNECTED" ? await getCycleAuditSample(ctx, i.id, 10) : [];
+  const plannerRuns = i.status !== "DISCONNECTED" ? await listPlannerRuns(ctx, { integrationId: i.id, take: 8 }) : [];
   const latest = syncs[0];
 
   return (
@@ -107,6 +110,47 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
           {latest ? <SyncStatus sync={toSyncData(latest)} /> : <EmptyState compact title="Not synced yet" description="Start the read-only import to bring in products, customers, subscriptions and order history." />}
         </div>
       </section>
+
+      {i.status !== "DISCONNECTED" ? (
+        <section className="space-y-3">
+          <SectionHeader
+            title="Automation"
+            description="The hard safety boundary for this store. Off: nothing is planned. Dry run: Ready rules are planned and dry-run against fresh data with a preview of the exact one-time we would create — nothing is written to Recharge. Live is not available in this phase."
+            actions={hasRole(ctx, "ADMIN") ? <RunPlannerButton integrationId={i.id} disabled={i.automationMode === "OFF"} /> : undefined}
+          />
+          <AutomationModeControl integrationId={i.id} displayName={i.displayName} mode={i.automationMode} canManage={hasRole(ctx, "ADMIN")} />
+          {plannerRuns.length > 0 ? (
+            <div className="overflow-x-auto rounded-xl border border-border bg-card">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Planner run</TableHead>
+                    <TableHead>Trigger</TableHead>
+                    <TableHead>Mode</TableHead>
+                    <TableHead>Result</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {plannerRuns.map((r) => {
+                    const c = (r.countsJson ?? {}) as Record<string, number | string | null>;
+                    return (
+                      <TableRow key={r.id}>
+                        <TableCell className="tnum text-xs">{formatDateTime(r.startedAt, ctx.timezone)}</TableCell>
+                        <TableCell className="text-xs">{r.trigger.toLowerCase()}</TableCell>
+                        <TableCell className="text-xs">{r.automationMode}</TableCell>
+                        <TableCell className="text-xs">{r.status !== "COMPLETED" ? `${r.status}${r.error ? ` — ${r.error.slice(0, 80)}` : ""}` : c.skippedReason ? `skipped: ${String(c.skippedReason)}` : <span className="tnum">{c.subscriptionsEvaluated ?? 0} evaluated · {c.planned ?? 0} planned · {c.replanned ?? 0} replanned · {c.confirmed ?? 0} confirmed · {c.cancelled ?? 0} cancelled · {c.superseded ?? 0} superseded{Number(c.rulesSkipped) > 0 ? ` · ${c.rulesSkipped} rule(s) skipped` : ""}</span>}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">The planner has not run for this store yet. It runs after every sync while dry run is on, or on demand.</p>
+          )}
+          <p className="text-xs text-muted-foreground">Planned actions and their dry-run previews live on <Link href={`/upcoming?integration=${i.id}`} className="underline">Upcoming</Link>.</p>
+        </section>
+      ) : null}
 
       <section className="space-y-3">
         <SectionHeader title="Cycle audit sample" description="Active, mapped subscriptions with the most history — compare each row with the order history in Recharge. 'Our cycle N' must equal the number of successful orders for that subscription's program journey." />

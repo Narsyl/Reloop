@@ -16,7 +16,7 @@ export type DisqualificationReason =
   | "ACTION_EXISTS";
 
 export const DISQUALIFICATION_LABEL: Record<DisqualificationReason, string> = {
-  RULE_NOT_ACTIVE: "Rule is not active",
+  RULE_NOT_ACTIVE: "Rule is not ready or active",
   WRONG_PROGRAM: "Different programme",
   MILESTONE_ALREADY_PASSED: "Already past this delivery",
   NOT_NEXT_CYCLE: "Not yet at the delivery before the milestone (future-only)",
@@ -38,6 +38,8 @@ export type QualificationInput = {
   existingLiveAction?: boolean;
   /** evaluate as if the rule were active (impact preview) */
   ignoreRuleStatus?: boolean;
+  /** planner: READY rules are usable ("configuration valid, may be planned/dry-run"); ACTIVE stays unreachable until the live phase */
+  allowReady?: boolean;
   /** evaluate under a scope other than the rule's (impact preview comparison) */
   scopeOverride?: EligibilityScope;
 };
@@ -49,7 +51,8 @@ export type QualificationResult =
 export function qualifyForRule(input: QualificationInput): QualificationResult {
   const { rule, journey } = input;
   const scope = input.scopeOverride ?? rule.eligibilityScope;
-  if (!input.ignoreRuleStatus && rule.status !== "ACTIVE") return { qualifies: false, reason: "RULE_NOT_ACTIVE", timing: "BLOCKED" };
+  const ruleUsable = rule.status === "ACTIVE" || (input.allowReady === true && rule.status === "READY");
+  if (!input.ignoreRuleStatus && !ruleUsable) return { qualifies: false, reason: "RULE_NOT_ACTIVE", timing: "BLOCKED" };
   if (journey.programId !== rule.programId) return { qualifies: false, reason: "WRONG_PROGRAM", timing: "NEVER" };
   if (!scope) return { qualifies: false, reason: "SCOPE_NOT_CHOSEN", timing: "BLOCKED" };
   const next = journey.successfulCycles + 1;

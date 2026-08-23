@@ -101,10 +101,11 @@ export class RechargeClient {
   }
 
   /**
-   * Generic request. Phase 2 callers only use GET; POST/PUT/DELETE exist for later
-   * phases and are NOT used by sync or capability probing.
+   * Generic request — PRIVATE. The only public verbs on this client are `get` and `paginate`
+   * (both GET). Write verbs will be added deliberately, as named public methods, in the live phase;
+   * until then no code path can reach POST/PUT/DELETE.
    */
-  async request<T = unknown>(path: string, opts: RequestOptions<T> = {}): Promise<T> {
+  private async request<T = unknown>(path: string, opts: RequestOptions<T> = {}): Promise<T> {
     const method = opts.method ?? "GET";
     const url = this.buildUrl(path, opts.query);
     const maxRetries = opts.maxRetries ?? this.maxRetries;

@@ -29,6 +29,8 @@ const markerSchema = z.object({
   title: z.string().trim().min(1, "Enter the item title as fulfilment will see it, e.g. “Morning Magic 2”.").max(120),
   sku: z.string().trim().max(64).optional().or(z.literal("")),
   source: z.enum(["MANUAL", "CATALOGUE", "DISCOVERED_ONETIME"]).default("MANUAL"),
+  /** configuration-only stand-in; never executable (READY rules and the planner refuse it) */
+  placeholder: z.boolean().optional().default(false),
 });
 
 async function admin() {
@@ -77,30 +79,41 @@ export async function saveMarker(input: unknown): Promise<ActionResult<{ id: str
       if (owner.integrationId !== integration.id) throw new Error("MARKER_INTEGRATION_MISMATCH");
 
       if (d.id) {
-        const existing = await tx.fulfillmentMarker.findUnique({ where: { id: d.id }, select: { id: true, integrationId: true, _count: { select: { rules: { where: { status: { in: ["READY", "ACTIVE"] } } } } } } });
+        const existing = await tx.fulfillmentMarker.findUnique({ where: { id: d.id }, select: { id: true, integrationId: true, name: true, externalVariantId: true, externalProductId: true, title: true, sku: true, placeholder: true, variantId: true, _count: { select: { actions: { where: { status: { in: ["EXECUTING", "ATTACHED"] } } } } } } });
         if (!existing) throw new Error("MARKER_NOT_FOUND");
         if (existing.integrationId !== integration.id) throw new Error("MARKER_INTEGRATION_MISMATCH");
+        const identityChanged = existing.externalVariantId !== externalVariantId;
+        if (identityChanged && existing._count.actions > 0) throw new Error("MARKER_HAS_ATTACHED_ACTIONS");
         const m = await tx.fulfillmentMarker.update({
           where: { id: d.id },
-          data: { name: d.name, description: d.description || null, variantId: variant.id, externalVariantId, externalProductId: productIdParsed.id, title: d.title, sku: d.sku || null, source: d.source },
+          data: { name: d.name, description: d.description || null, variantId: variant.id, externalVariantId, externalProductId: productIdParsed.id, title: d.title, sku: d.sku || null, source: d.source, placeholder: d.placeholder },
           select: { id: true, name: true },
         });
-        return { ...m, created: false };
+        // an identity change orphans the old internal marker catalogue rows — remove them when nothing references them
+        if (identityChanged && existing.variantId !== variant.id) {
+          const oldVariant = await tx.productVariant.findUnique({ where: { id: existing.variantId }, select: { id: true, productId: true, product: { select: { type: true } }, _count: { select: { subscriptions: true, journeys: true } } } });
+          if (oldVariant && oldVariant.product.type === "FULFILMENT_MARKER" && oldVariant._count.subscriptions === 0 && oldVariant._count.journeys === 0) {
+            await tx.productVariant.delete({ where: { id: oldVariant.id } });
+            const siblings = await tx.productVariant.count({ where: { productId: oldVariant.productId } });
+            if (siblings === 0) await tx.product.delete({ where: { id: oldVariant.productId } });
+          }
+        }
+        return { ...m, created: false, previous: { name: existing.name, externalVariantId: existing.externalVariantId, externalProductId: existing.externalProductId, title: existing.title, sku: existing.sku, placeholder: existing.placeholder }, identityChanged };
       }
       const m = await tx.fulfillmentMarker.create({
-        data: { organizationId: ctx.organizationId, integrationId: integration.id, name: d.name, description: d.description || null, variantId: variant.id, externalVariantId, externalProductId: productIdParsed.id, title: d.title, sku: d.sku || null, source: d.source },
+        data: { organizationId: ctx.organizationId, integrationId: integration.id, name: d.name, description: d.description || null, variantId: variant.id, externalVariantId, externalProductId: productIdParsed.id, title: d.title, sku: d.sku || null, source: d.source, placeholder: d.placeholder },
         select: { id: true, name: true },
       });
-      return { ...m, created: true };
+      return { ...m, created: true, previous: null, identityChanged: false };
     });
     await logActivity(ctx, {
       actorType: "USER",
       actorId: ctx.userId,
-      eventType: result.created ? "MARKER_CREATED" : "MARKER_UPDATED",
+      eventType: result.created ? "MARKER_CREATED" : result.identityChanged ? "MARKER_IDENTITY_CHANGED" : "MARKER_UPDATED",
       entityType: "FULFILLMENT_MARKER",
       entityId: result.id,
-      summary: `${result.created ? "Created" : "Updated"} fulfilment marker "${result.name}" → ${d.title}${d.sku ? ` (${d.sku})` : ""} · variant ${externalVariantId} on ${integration.displayName}`,
-      metadata: { externalVariantId, externalProductId: productIdParsed.id, source: d.source },
+      summary: `${result.created ? "Created" : result.identityChanged ? "Re-pointed" : "Updated"} fulfilment marker "${result.name}" → ${d.title}${d.sku ? ` (${d.sku})` : ""} · variant ${externalVariantId} on ${integration.displayName}${d.placeholder ? " · PLACEHOLDER (not executable)" : ""}${result.identityChanged && result.previous ? ` · previously variant ${result.previous.externalVariantId} "${result.previous.title ?? ""}"` : ""}`,
+      metadata: { externalVariantId, externalProductId: productIdParsed.id, source: d.source, placeholder: d.placeholder, previous: result.previous ?? undefined, identityChanged: result.identityChanged },
     });
     revalidatePath("/products");
     revalidatePath("/rules");
@@ -114,6 +127,7 @@ export async function saveMarker(input: unknown): Promise<ActionResult<{ id: str
     const msg = e instanceof Error ? e.message : String(e);
     if (msg === "MARKER_INTEGRATION_MISMATCH") return { ok: false, error: "That variant belongs to a different integration." };
     if (msg === "MARKER_NOT_FOUND") return { ok: false, error: "Marker not found." };
+    if (msg === "MARKER_HAS_ATTACHED_ACTIONS") return { ok: false, error: "This marker has actions that are attaching or attached in the subscription platform; its external identity cannot change until they complete. Create a new marker instead." };
     throw e;
   }
 }

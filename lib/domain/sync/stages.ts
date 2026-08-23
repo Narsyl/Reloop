@@ -6,6 +6,7 @@ import { isRechargeError } from "@/lib/integrations/recharge/errors";
 import type { ConnectorOrder, ConnectorProduct, ConnectorSubscription } from "@/lib/integrations/types";
 import { recalculateJourneysForSubscriptions } from "@/lib/domain/journeys/recalc";
 import type { SyncCounts } from "./progress";
+import { localMidnightUtc } from "@/lib/domain/time";
 
 /**
  * Import stages. Each function imports ONE page and returns the next cursor and
@@ -145,17 +146,7 @@ function toInternalStatus(s: ConnectorSubscription["status"]): "ACTIVE" | "CANCE
   return s === "active" ? "ACTIVE" : s === "cancelled" ? "CANCELLED" : s === "expired" ? "EXPIRED" : "UNKNOWN";
 }
 
-/** Local midnight of a YYYY-MM-DD in `timeZone` — the earliest instant the charge could run. */
-export function localMidnightUtc(ymd: string, timeZone: string): Date {
-  const [y, m, d] = ymd.split("-").map(Number);
-  // find the UTC instant at which local time is 00:00 on that date
-  const guess = Date.UTC(y, m - 1, d, 0, 0, 0);
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(guess));
-  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
-  const localAsUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour") % 24, get("minute"));
-  const offset = localAsUtc - guess; // how far local is ahead of UTC at that instant
-  return new Date(guess - offset);
-}
+export { localMidnightUtc };
 
 export async function importSubscriptionsPage(
   ctx: Ctx & { timezone: string },

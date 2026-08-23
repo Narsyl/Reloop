@@ -31,6 +31,10 @@ export const integrationSyncRequested = eventType("integration/sync.requested", 
 });
 
 /** Program mappings changed — recalculate journeys for an integration. */
+export const automationPlanRequested = eventType("automation/plan.requested", {
+  schema: z.object({ integrationId: z.string(), organizationId: z.string(), trigger: z.enum(["SYNC", "MANUAL", "CRON", "TEST"]) }),
+});
+
 export const journeysRecalculateRequested = eventType("journeys/recalculate.requested", {
   schema: z.object({ organizationId: z.string(), integrationId: z.string(), reason: z.string() }),
 });

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- CommonJS preload for tsx -r */
 // Preload for CLI scripts (tsx -r): `server-only` throws outside a Next.js server bundle.
 // Stubbing it here is safe for read-only operational scripts run from the terminal.
 const Module = require("module");

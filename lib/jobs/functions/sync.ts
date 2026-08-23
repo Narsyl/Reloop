@@ -1,6 +1,6 @@
 import { NonRetriableError } from "inngest";
 import type { SyncStage } from "@prisma/client";
-import { inngest, integrationSyncRequested } from "@/lib/jobs/inngest";
+import { inngest, integrationSyncRequested, automationPlanRequested } from "@/lib/jobs/inngest";
 import { prisma } from "@/lib/db/prisma";
 import { getRechargeConnectorForIntegration, IntegrationUnavailableError } from "@/lib/domain/integrations/connector";
 import { isRechargeError } from "@/lib/integrations/recharge/errors";
@@ -151,6 +151,10 @@ export const runIntegrationSync = inngest.createFunction(
     }
 
     await step.run("complete", () => completeSyncRun(ctx, syncId));
-    return { syncId, completed: true };
+    // Phase 4: planning is driven by the (read-only) sync — after every completed run the planner
+    // re-evaluates the integration. It is a no-op while automation is OFF.
+    const mode = await step.run("automation-mode", async () => (await prisma.integration.findUnique({ where: { id: integrationId }, select: { automationMode: true } }))?.automationMode ?? "OFF");
+    if (mode !== "OFF") await step.sendEvent("dispatch-planner", automationPlanRequested.create({ integrationId, organizationId, trigger: "SYNC" }));
+    return { syncId, completed: true, plannerDispatched: mode !== "OFF" };
   },
 );

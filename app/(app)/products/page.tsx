@@ -164,7 +164,7 @@ export default async function ProductsPage({ searchParams }: PageProps<"/product
                 <li key={m.id} className="space-y-3 rounded-xl border border-border bg-card p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h3 className="text-sm font-semibold">{m.name}</h3>
+                      <h3 className="text-sm font-semibold">{m.name}{m.placeholder ? <span className="ml-2 rounded bg-status-warning-bg px-1.5 py-0.5 text-[11px] font-medium text-status-warning">placeholder · not executable</span> : null}</h3>
                       <p className="text-xs text-muted-foreground">
                         {m.title ?? m.variant.product.title}
                         {m.sku && <span className="ml-1 font-mono">{m.sku}</span>}
@@ -178,7 +178,7 @@ export default async function ProductsPage({ searchParams }: PageProps<"/product
                         <div className="flex items-center gap-1">
                           <MarkerDialog
                             integrations={integrationOptions}
-                            initial={{ id: m.id, integrationId: m.integrationId, name: m.name, description: m.description ?? "", externalVariantId: m.externalVariantId, externalProductId: m.externalProductId ?? "", title: m.title ?? "", sku: m.sku ?? "", source: m.source }}
+                            initial={{ id: m.id, integrationId: m.integrationId, name: m.name, description: m.description ?? "", externalVariantId: m.externalVariantId, externalProductId: m.externalProductId ?? "", title: m.title ?? "", sku: m.sku ?? "", source: m.source, placeholder: m.placeholder }}
                             trigger={<Button size="xs" variant="ghost">Edit</Button>}
                           />
                           <MarkerActiveToggle id={m.id} name={m.name} active={m.active} usedByRules={m.rules.filter((r) => r.status === "READY" || r.status === "ACTIVE").length} />

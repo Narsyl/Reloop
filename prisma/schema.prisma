@@ -105,6 +105,7 @@ model Organization {
   activityLogs       ActivityLog[]
   syncs              IntegrationSync[]
   subscriptionOrders SubscriptionOrder[]
+  plannerRuns        PlannerRun[]
 }
 
 enum OrganizationRole {
@@ -177,6 +178,7 @@ model Integration {
   syncs              IntegrationSync[]
   subscriptionOrders SubscriptionOrder[]
   fulfillmentMarkers FulfillmentMarker[]
+  plannerRuns        PlannerRun[]
 
   @@unique([organizationId, provider, externalStoreId])
   @@index([organizationId])
@@ -320,6 +322,9 @@ model FulfillmentMarker {
   sku               String?
   source            MarkerSource @default(MANUAL)
   active            Boolean      @default(true)
+  // Configuration-only stand-in (e.g. a discovered paid one-time used to validate a rule).
+  // Never executable: READY rules and the planner refuse placeholder markers.
+  placeholder       Boolean      @default(false)
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
@@ -593,6 +598,14 @@ model AutomationAction {
   // Idempotency: "<journeyId>:<targetCycle>:<fulfillmentMarkerId>" while status is live
   // (PLANNED / EXECUTING / ATTACHED / FULFILLED / FAILED); NULL when CANCELLED / SUPERSEDED.
   liveKey String? @unique
+  // Scope-level owner of the milestone (Phase 4): PER_SUBSCRIPTION → "j:<journeyId>:<cycle>:<markerId>",
+  // CUSTOMER_PROGRAM → "c:<customerId>:<programId>:<cycle>:<markerId>". Same lifetime as liveKey.
+  ownerKey         String?           @unique
+  eligibilityScope EligibilityScope?
+  plannerRunId     String?
+  lastPlannedAt    DateTime?
+  replanCount      Int               @default(0)
+  supersededById   String?
 
   targetChargeDate String? // YYYY-MM-DD (Recharge date-only value)
   targetChargeAt   DateTime? // local midnight of targetChargeDate in org timezone
@@ -607,6 +620,11 @@ model AutomationAction {
   fulfilledByCycleId String?
 
   dryRun        Boolean   @default(false)
+  // DRY_RUN executor output (Phase 4): structured preview of what WOULD be sent, never sent
+  lastDryRunAt   DateTime?
+  dryRunJson     Json?
+  wouldExecute   Boolean?
+  blockingReason String?
   attemptCount  Int       @default(0)
   nextAttemptAt DateTime?
   lastError     String?
@@ -626,11 +644,43 @@ model AutomationAction {
   fulfillmentMarker FulfillmentMarker   @relation(fields: [fulfillmentMarkerId], references: [id], onDelete: Restrict)
   fulfilledByCycle  JourneyCycle?       @relation(fields: [fulfilledByCycleId], references: [id], onDelete: SetNull)
   triggeredByEvent  IntegrationEvent?   @relation(fields: [triggeredByEventId], references: [id], onDelete: SetNull)
+  plannerRun        PlannerRun?         @relation(fields: [plannerRunId], references: [id], onDelete: SetNull)
   exceptions        Exception[]
 
   @@index([organizationId, status, targetChargeAt])
   @@index([status, executeAfter])
   @@index([subscriptionId])
+}
+
+enum PlannerRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+/// One execution of the action planner for an integration (after a sync, on demand, or by cron).
+/// History for the Upcoming page and for proving idempotency: counts of evaluated / planned /
+/// replanned / cancelled / superseded / skipped.
+model PlannerRun {
+  id             String           @id @default(cuid())
+  organizationId String
+  integrationId  String
+  status         PlannerRunStatus @default(RUNNING)
+  trigger        String // SYNC | MANUAL | CRON | TEST
+  automationMode AutomationMode
+  startedAt      DateTime         @default(now())
+  finishedAt     DateTime?
+  countsJson     Json?
+  detailsJson    Json?
+  error          String?
+  triggeredById  String?
+  createdAt      DateTime         @default(now())
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration  Integration        @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  actions      AutomationAction[]
+
+  @@index([organizationId, integrationId, startedAt])
 }
 
 // ═══════════════════════════ Event inbox ═══════════════════════════

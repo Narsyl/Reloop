@@ -181,6 +181,11 @@ async function seedOrg(org: { id: string; slug: string; name: string }, userId: 
   });
   ids.IntegrationSync = syncRun.id;
 
+  const plannerRun = await prisma.plannerRun.create({
+    data: { organizationId: org.id, integrationId: integ.id, trigger: "TEST", automationMode: "DRY_RUN", status: "COMPLETED" },
+  });
+  ids.PlannerRun = plannerRun.id;
+
   const so = await prisma.subscriptionOrder.create({
     data: {
       organizationId: org.id,

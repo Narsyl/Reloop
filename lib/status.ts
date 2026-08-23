@@ -64,8 +64,8 @@ export const integrationStatus: Record<IntegrationStatus, StatusMeta> = {
 
 export const automationMode: Record<AutomationMode, StatusMeta> = {
   OFF: { label: "Automation off", tone: "neutral", description: "Nothing is written to the subscription platform." },
-  DRY_RUN: { label: "Dry run", tone: "info", description: "Actions are planned and validated but not attached." },
-  LIVE: { label: "Live", tone: "success", description: "Markers are attached automatically." },
+  DRY_RUN: { label: "Dry run", tone: "info", description: "Actions are planned, dry-run and previewed; nothing is written to the subscription platform." },
+  LIVE: { label: "Live", tone: "success", description: "Markers are attached automatically (not available in this phase)." },
 };
 
 export const eventStatus: Record<IntegrationEventStatus, StatusMeta> = {
@@ -86,8 +86,8 @@ export const enabledStatus = (enabled: boolean): StatusMeta =>
 
 export const ruleStatus: Record<RuleStatus, StatusMeta> = {
   DRAFT: { label: "Draft", tone: "neutral", description: "Being configured. Cannot plan actions." },
-  READY: { label: "Ready", tone: "info", description: "Valid and complete; awaiting activation. Cannot plan actions." },
-  ACTIVE: { label: "Active", tone: "success", description: "Plans actions for qualifying subscriptions." },
+  READY: { label: "Ready", tone: "info", description: "Valid and complete: the dry-run planner plans actions for it and previews what would be sent. Nothing is attached until the live phase." },
+  ACTIVE: { label: "Active", tone: "success", description: "Live automation (not available in this phase)." },
   DISABLED: { label: "Disabled", tone: "neutral", description: "Intentionally off." },
   ARCHIVED: { label: "Archived", tone: "neutral", description: "Retired; its milestone is free for a new rule." },
 };
@@ -103,3 +103,12 @@ export const schedulingState = (status: SubscriptionStatus, nextChargeDate: stri
 
 export const activeStatus = (active: boolean): StatusMeta =>
   active ? { label: "Active", tone: "success" } : { label: "Inactive", tone: "neutral" };
+
+/** Eligibility / risk state of a planned action from its last dry run. */
+export function dryRunState(a: { status: ActionStatus; lastDryRunAt: Date | null; wouldExecute: boolean | null; blockingReason: string | null; executeAfter: Date | null }, now = new Date()): StatusMeta {
+  if (a.status !== "PLANNED") return actionStatus[a.status];
+  if (a.lastDryRunAt && a.wouldExecute === true) return { label: "Would execute", tone: "success", description: "Last dry run passed every check." };
+  if (a.lastDryRunAt && a.wouldExecute === false) return { label: a.blockingReason ? "Blocked · " + a.blockingReason.split(":")[0] : "Blocked", tone: "warning", description: a.blockingReason ?? undefined };
+  if (a.executeAfter && a.executeAfter.getTime() <= now.getTime()) return { label: "Due · awaiting dry run", tone: "info" };
+  return { label: "Scheduled", tone: "neutral", description: "Dry run happens when the execute-after time is reached (or on demand)." };
+}

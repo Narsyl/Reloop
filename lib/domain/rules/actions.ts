@@ -108,10 +108,10 @@ export async function setRuleStatus(input: unknown): Promise<ActionResult<{ stat
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { id, status } = parsed.data;
   if (status === "ACTIVE") {
-    return { ok: false, error: "Activation is not available yet: the automation engine (action planning + dry run) has not been enabled for this organisation. Rules can be configured, validated and marked Ready; none can plan or execute actions." };
+    return { ok: false, error: "Activation is not available in this phase: the action engine runs in dry-run only. Ready rules are planned and dry-run against real data; nothing is attached in the subscription platform until the live phase is approved." };
   }
   const db = dbFor(ctx);
-  const rule = await db.automationRule.findUnique({ where: { id }, include: { program: { select: { name: true, active: true } }, fulfillmentMarker: { select: { name: true, active: true } } } });
+  const rule = await db.automationRule.findUnique({ where: { id }, include: { program: { select: { name: true, active: true } }, fulfillmentMarker: { select: { name: true, active: true, placeholder: true } } } });
   if (!rule) return { ok: false, error: "Rule not found." };
   if (rule.status === status) return { ok: true, data: { status } };
   if (rule.status === "ARCHIVED") return { ok: false, error: "Archived rules cannot change state." };
@@ -120,6 +120,7 @@ export async function setRuleStatus(input: unknown): Promise<ActionResult<{ stat
     const issues = validateRuleConfig({ name: rule.name, programId: rule.programId, cycleNumber: rule.cycleNumber, fulfillmentMarkerId: rule.fulfillmentMarkerId, eligibilityScope: rule.eligibilityScope }).filter((i) => i.blocksReady);
     if (!rule.program.active) issues.push({ field: "programId", code: "PROGRAM_INACTIVE", message: "The programme is inactive.", blocksReady: true });
     if (!rule.fulfillmentMarker.active) issues.push({ field: "fulfillmentMarkerId", code: "MARKER_INACTIVE", message: `The marker "${rule.fulfillmentMarker.name}" is inactive.`, blocksReady: true });
+    if (rule.fulfillmentMarker.placeholder) issues.push({ field: "fulfillmentMarkerId", code: "MARKER_PLACEHOLDER", message: `The marker "${rule.fulfillmentMarker.name}" is a placeholder and can never be executed — replace it with the real £0 fulfilment item before marking the rule Ready.`, blocksReady: true });
     if (issues.length) return { ok: false, error: issues.map((i) => i.message).join(" ") };
   }
 

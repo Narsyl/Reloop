@@ -23,12 +23,13 @@ export type MarkerFormInitial = {
   title: string;
   sku: string;
   source: "MANUAL" | "CATALOGUE" | "DISCOVERED_ONETIME";
+  placeholder?: boolean;
 };
 
 export function MarkerDialog({ integrations, initial, trigger }: { integrations: { id: string; displayName: string }[]; initial?: MarkerFormInitial; trigger?: React.ReactNode }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState<MarkerFormInitial>(initial ?? { integrationId: integrations[0]?.id ?? "", name: "", description: "", externalVariantId: "", externalProductId: "", title: "", sku: "", source: "MANUAL" });
+  const [form, setForm] = useState<MarkerFormInitial>(initial ?? { integrationId: integrations[0]?.id ?? "", name: "", description: "", externalVariantId: "", externalProductId: "", title: "", sku: "", source: "MANUAL", placeholder: false });
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [discovered, setDiscovered] = useState<DiscoveredMarker[] | null>(null);
   const [discovering, startDiscover] = useTransition();
@@ -138,6 +139,13 @@ export function MarkerDialog({ integrations, initial, trigger }: { integrations:
               <Label htmlFor="mk-desc">Operational note <span className="text-muted-foreground">(internal)</span></Label>
               <Textarea id="mk-desc" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Fulfilment team adds the free whisk." />
             </div>
+            <label className="flex items-start gap-2 rounded-lg border border-dashed border-border p-3 text-xs sm:col-span-2">
+              <input type="checkbox" className="mt-0.5" checked={!!form.placeholder} onChange={(e) => setForm({ ...form, placeholder: e.target.checked })} />
+              <span>
+                <span className="block font-medium">Placeholder — configuration only, never executable</span>
+                <span className="text-muted-foreground">Use while the real £0 fulfilment item does not exist yet. Rules pointing at a placeholder cannot be marked Ready and the planner never creates actions for them.</span>
+              </span>
+            </label>
           </div>
           <p className={cn("text-xs", form.source === "DISCOVERED_ONETIME" ? "text-status-info" : "text-muted-foreground")}>
             {form.source === "DISCOVERED_ONETIME" ? "Pre-filled from an existing one-time. Discovery proves the variant was used before; it does not guarantee it still exists — confirm in Shopify." : "Paste the numeric Shopify variant id (not a GID). On Shopify-checkout stores it cannot be verified through Recharge until the first live write."}

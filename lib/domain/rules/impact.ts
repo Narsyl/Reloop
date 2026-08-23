@@ -11,7 +11,7 @@
  */
 import type { EligibilityScope } from "@prisma/client";
 import { dbFor } from "@/lib/db/tenant";
-import { buildProgramResolver, isResolved } from "@/lib/domain/programs/resolve";
+import { loadProgramPopulation, populationCustomerName } from "@/lib/domain/eligibility/population";
 import { evaluateJourneyEligibilityIgnoringMode, type IneligibilityReason } from "@/lib/domain/eligibility/evaluate";
 import { qualifyForRule, type DisqualificationReason } from "@/lib/domain/eligibility/qualify";
 
@@ -90,76 +90,36 @@ export async function analyzeMilestoneImpact(
   params: { programId: string; cycleNumber: number; ruleId?: string | null; fulfillmentMarkerId?: string | null },
 ): Promise<ImpactSummary> {
   const db = dbFor(ctx);
-  const program = await db.subscriptionProgram.findUniqueOrThrow({ where: { id: params.programId }, select: { id: true, name: true } });
+  const population = await loadProgramPopulation(ctx, params.programId);
+  const program = { id: population.programId, name: population.programName };
 
-  // every subscription whose LATEST journey is in this programme (includes cancelled, for the full picture)
-  const subs = await db.subscription.findMany({
-    where: { latestJourney: { programId: program.id } },
-    include: {
-      customer: { select: { id: true, firstName: true, lastName: true, email: true } },
-      integration: { select: { id: true, status: true, automationMode: true } },
-      latestJourney: { select: { id: true, programId: true, successfulCycles: true, endedAt: true } },
-    },
-    orderBy: [{ status: "asc" }, { externalCreatedAt: "asc" }],
-  });
-
-  // lifetime deliveries per (customer, programme) from distinct cycle evidence
-  const customerIds = [...new Set(subs.map((s) => s.customerId).filter((x): x is string => !!x))];
-  const cycleRows = await db.journeyCycle.findMany({
-    where: { journey: { programId: program.id, subscription: { customerId: { in: customerIds } } } },
-    select: { journeyId: true, externalOrderId: true, journey: { select: { subscription: { select: { customerId: true } } } } },
-  });
-  const lifetime = new Map<string, Set<string>>(); // customerId → set of journeyId:orderId
-  const journeysPerCustomer = new Map<string, Set<string>>();
-  for (const c of cycleRows) {
-    const cid = c.journey.subscription.customerId;
-    if (!cid) continue;
-    if (!lifetime.has(cid)) lifetime.set(cid, new Set());
-    lifetime.get(cid)!.add(`${c.journeyId}:${c.externalOrderId}`);
-    if (!journeysPerCustomer.has(cid)) journeysPerCustomer.set(cid, new Set());
-    journeysPerCustomer.get(cid)!.add(c.journeyId);
-  }
-  // journeys with zero cycles still count as "other journeys" for visibility
-  const allJourneys = await db.subscriptionJourney.findMany({ where: { programId: program.id, subscription: { customerId: { in: customerIds } } }, select: { id: true, subscription: { select: { customerId: true } } } });
-  for (const j of allJourneys) {
-    const cid = j.subscription.customerId;
-    if (!cid) continue;
-    if (!journeysPerCustomer.has(cid)) journeysPerCustomer.set(cid, new Set());
-    journeysPerCustomer.get(cid)!.add(j.id);
-  }
-
-  // live actions for this milestone (none in Phase 3, but the logic is permanent)
+  // live actions for this milestone (journey-level ownership; the planner's liveKey)
   const liveActions = await db.automationAction.findMany({
     where: { targetCycle: params.cycleNumber, status: { in: ["PLANNED", "EXECUTING", "ATTACHED", "FULFILLED", "FAILED"] }, journey: { programId: program.id }, ...(params.fulfillmentMarkerId ? { fulfillmentMarkerId: params.fulfillmentMarkerId } : {}) },
     select: { journeyId: true },
   });
   const journeysWithAction = new Set(liveActions.map((a) => a.journeyId));
 
-  // resolver per integration (programme may span integrations; typically one)
-  const resolvers = new Map<string, Awaited<ReturnType<typeof buildProgramResolver>>>();
-  for (const s of subs) if (!resolvers.has(s.integrationId)) resolvers.set(s.integrationId, await buildProgramResolver(ctx, s.integrationId));
-
   const rule = { status: "ACTIVE" as const, programId: program.id, cycleNumber: params.cycleNumber, eligibilityScope: null };
   const rows: ImpactRow[] = [];
-  for (const s of subs) {
-    const res = resolvers.get(s.integrationId)!.resolve(s.externalProductId, s.externalVariantId);
+  for (const s of population.rows) {
     const eligibility = evaluateJourneyEligibilityIgnoringMode({
       subscription: { status: s.status, mappingStatus: s.mappingStatus, nextChargeDate: s.nextChargeDate, latestJourneyId: s.latestJourneyId, automationOverride: s.automationOverride },
       journey: s.latestJourney ? { id: s.latestJourney.id, endedAt: s.latestJourney.endedAt, programId: s.latestJourney.programId } : null,
-      resolvedProgramId: isResolved(res) ? res.programId : null,
+      resolvedProgramId: s.resolvedProgramId,
       integration: s.integration,
     });
-    const lifetimeDeliveries = s.customerId ? (lifetime.get(s.customerId)?.size ?? 0) : (s.latestJourney?.successfulCycles ?? 0);
-    const otherJourneys = s.customerId ? Math.max(0, (journeysPerCustomer.get(s.customerId)?.size ?? 0) - 1) : 0;
+    const lifetimeDeliveries = s.lifetimeDeliveries;
+    const otherJourneys = s.otherJourneysInProgram;
     const journey = { programId: s.latestJourney?.programId ?? "", successfulCycles: s.latestJourney?.successfulCycles ?? 0 };
     const existingLiveAction = s.latestJourney ? journeysWithAction.has(s.latestJourney.id) : false;
     const per = qualifyForRule({ rule, journey, existingLiveAction, ignoreRuleStatus: true, scopeOverride: "PER_SUBSCRIPTION" });
     const cust = qualifyForRule({ rule, journey, existingLiveAction, ignoreRuleStatus: true, scopeOverride: "CUSTOMER_PROGRAM", customerLifetimeDeliveries: lifetimeDeliveries });
     const row: ImpactRow = {
-      subscriptionId: s.id,
+      subscriptionId: s.subscriptionId,
       externalSubscriptionId: s.externalSubscriptionId,
       customerId: s.customerId,
-      customerName: [s.customer?.firstName, s.customer?.lastName].filter(Boolean).join(" ") || s.customer?.email || "Unknown customer",
+      customerName: populationCustomerName(s),
       customerEmail: s.customer?.email ?? null,
       status: s.status,
       nextChargeDate: s.nextChargeDate,
