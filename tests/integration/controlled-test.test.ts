@@ -394,6 +394,46 @@ describe("rollback (explicit, narrowly scoped)", () => {
   });
 });
 
+describe("post-delivery progression — the Alexandria path (d2 ATTACHED → delivery 2 arrives → d3 planned)", () => {
+  it("records delivery 2, keeps the ATTACHED d2 action (no duplicate, no cancel), and plans the delivery-3 Spoon action", async () => {
+    // extend the schedule: d3 → Spoon, bound to its own variant (compatibility of Spoon stays untried)
+    const spoon = ok(await upsertRewardItem(ctx, { name: "Spoon" })).id;
+    const sched = await prisma.rewardSchedule.findFirstOrThrow({ where: { organizationId: org.id, name: "Schedule CT" }, select: { id: true } });
+    ok(await upsertMilestone(ctx, { scheduleId: sched.id, cycleNumber: 3, rewardItemId: spoon, eligibilityScope: "PER_SUBSCRIPTION" }));
+    const shopify = await prisma.integration.findFirstOrThrow({ where: { organizationId: org.id, provider: "SHOPIFY" }, select: { id: true } });
+    await prisma.rewardItemExternalBinding.create({ data: { organizationId: org.id, rewardItemId: spoon, integrationId: shopify.id, provider: "SHOPIFY", externalProductId: "15065974899074", externalVariantId: "55557646483842", externalTitle: "Morning Magic Metal Scoop", externalStatus: "ACTIVE", requiresShipping: true, verificationJson: { issues: [] } } });
+
+    // CT-2 has an ATTACHED d2 action (from the reconciliation test) targeting 2026-09-12
+    const attached = await prisma.automationAction.findFirstOrThrow({ where: { organizationId: org.id, status: "ATTACHED", subscription: { externalSubscriptionId: "CT-2" } } });
+    expect(attached.targetCycle).toBe(2);
+    const sub = await prisma.subscription.findUniqueOrThrow({ where: { integrationId_externalSubscriptionId: { integrationId, externalSubscriptionId: "CT-2" } }, select: { id: true } });
+
+    // the renewal charge processes on the target date: delivery 2 evidence + the provider moves next charge on
+    await prisma.subscriptionOrder.create({ data: { organizationId: org.id, integrationId, subscriptionId: sub.id, externalSubscriptionId: "CT-2", externalOrderId: "CT-2-o2", externalCustomerId: "c-CT-2", externalAddressId: "addr-CT-2", orderKind: "RECURRING", orderStatus: "success", processedAt: new Date("2026-09-12T06:00:00Z"), externalProductId: "700100", externalVariantId: "700101", productTitle: "Morning Magic" } });
+    await prisma.subscription.update({ where: { id: sub.id }, data: { nextChargeDate: "2026-10-12" } });
+    rc.subs.set("CT-2", mkSub({ externalSubscriptionId: "CT-2", externalCustomerId: "c-CT-2", externalAddressId: "addr-CT-2", nextChargeDate: "2026-10-12" }));
+    await recalculateJourneysForSubscriptions(ctx, integrationId, [sub.id], new Date("2026-09-12T12:00:00Z"));
+    const journey = await prisma.subscriptionJourney.findFirstOrThrow({ where: { subscriptionId: sub.id }, orderBy: { sequence: "desc" } });
+    expect(journey.successfulCycles).toBe(2);
+
+    const s2 = await planActionsForIntegration(ctx, integrationId, { trigger: "TEST", now: new Date("2026-09-12T12:00:00Z") });
+    // d2: the ATTACHED action is untouched — not cancelled, not superseded, and no second d2 action appears
+    const after = await prisma.automationAction.findUniqueOrThrow({ where: { id: attached.id } });
+    expect(after.status).toBe("ATTACHED");
+    expect(after.liveKey).not.toBeNull();
+    expect(await prisma.automationAction.count({ where: { subscriptionId: sub.id, targetCycle: 2, status: { in: ["PLANNED", "EXECUTING", "ATTACHED"] } } })).toBe(1);
+    expect(s2.cancelledActions.map((c) => c.actionId)).not.toContain(attached.id);
+    // d3: the Spoon action IS planned for the new charge
+    const d3 = await prisma.automationAction.findFirst({ where: { subscriptionId: sub.id, targetCycle: 3, status: "PLANNED" }, include: { rewardItem: { select: { name: true } } } });
+    expect(d3).not.toBeNull();
+    expect(d3!.rewardItem?.name).toBe("Spoon");
+    expect(d3!.targetChargeDate).toBe("2026-10-12");
+    // Spoon compatibility was NOT inferred from the Cup/Whisk-style write
+    const spoonBinding = await prisma.rewardItemExternalBinding.findFirstOrThrow({ where: { rewardItemId: spoon } });
+    expect(spoonBinding.rechargeCompatibility).toBe("UNVERIFIED");
+  }, 120_000);
+});
+
 describe("tenant isolation + no new generic mutation surface", () => {
   it("another organisation cannot arm, execute or roll back this org's action; DB trigger blocks a cross-org authorization", async () => {
     const a2 = await action("CT-2");
