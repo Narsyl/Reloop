@@ -89,9 +89,11 @@ async function main() {
   cmp("exceptions.open", await prisma.exception.count({ where: { ...O, status: "OPEN" } }));
   const actions = await prisma.automationAction.groupBy({ by: ["status"], where: O, _count: { _all: true } });
   const actionCounts = actions.map((a) => `${a.status} ${a._count._all}`).join(", ") || "0";
-  // Planned/cancelled/superseded dry-run rows are normal; anything that implies a WRITE happened is not (pre-Phase 6).
-  const executed = await prisma.automationAction.count({ where: { ...O, OR: [{ status: { in: ["EXECUTING", "ATTACHED", "FULFILLED"] } }, { executedAt: { not: null } }, { externalObjectId: { not: null } }] } });
-  add("AutomationAction rows (no executed/attached before Phase 6)", executed === 0, `${actionCounts}${executed ? ` · ${executed} EXECUTED/ATTACHED ← unexpected` : ""}`);
+  // Phase 6 gate: general LIVE execution stays off — every executed/attached action must be covered by a
+  // consumed ControlledTestAuthorization; anything executed WITHOUT one means the containment was bypassed.
+  const executedRows = await prisma.automationAction.findMany({ where: { ...O, OR: [{ status: { in: ["EXECUTING", "ATTACHED", "FULFILLED"] } }, { executedAt: { not: null } }, { externalObjectId: { not: null } }] }, select: { id: true, status: true, controlledTest: { select: { status: true, outcome: true } } } });
+  const uncovered = executedRows.filter((r) => !r.controlledTest || r.controlledTest.status === "ARMED");
+  add("AutomationAction rows (every executed action covered by a controlled-test authorization)", uncovered.length === 0, `${actionCounts}${executedRows.length ? ` · executed: ${executedRows.map((r) => `${r.id.slice(-6)}=${r.status}/${r.controlledTest?.outcome ?? "NO-AUTH"}`).join(", ")}` : ""}${uncovered.length ? ` · ${uncovered.length} WITHOUT authorization ← containment bypassed` : ""}`);
   cmp("plannerRuns", await prisma.plannerRun.count({ where: O }).catch(() => -1));
 
   // natural-key uniqueness (DB-enforced, but verify the restored data honours it)
