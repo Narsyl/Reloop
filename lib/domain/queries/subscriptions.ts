@@ -22,7 +22,7 @@ export async function listSubscriptions(ctx: Ctx, filters: SubscriptionFilters) 
   const where: Prisma.SubscriptionWhereInput = {};
 
   if (filters.status && filters.status !== "ALL") where.status = filters.status;
-  if (filters.programId) where.currentJourney = { programId: filters.programId };
+  if (filters.programId) where.latestJourney = { programId: filters.programId };
   if (filters.mapping && filters.mapping !== "ALL") where.mappingStatus = filters.mapping;
   if (filters.q?.trim()) {
     const q = filters.q.trim();
@@ -51,7 +51,7 @@ export async function listSubscriptions(ctx: Ctx, filters: SubscriptionFilters) 
       include: {
         customer: true,
         integration: { select: { id: true, displayName: true, provider: true } },
-        currentJourney: { include: { program: { select: { id: true, name: true } } } },
+        latestJourney: { include: { program: { select: { id: true, name: true } } } },
         actions: {
           where: { status: { in: ["PLANNED", "EXECUTING", "ATTACHED", "FAILED"] } },
           orderBy: { targetChargeAt: "asc" },
@@ -78,7 +78,7 @@ export async function getSubscriptionDetail(ctx: Ctx, id: string) {
       integration: { select: { id: true, displayName: true, provider: true, automationMode: true } },
       product: { select: { id: true, title: true } },
       variant: { select: { id: true, title: true, sku: true } },
-      currentJourney: { include: { program: true, cycles: { orderBy: { cycleNumber: "asc" } } } },
+      latestJourney: { include: { program: true, cycles: { orderBy: { cycleNumber: "asc" } } } },
       journeys: {
         orderBy: { sequence: "asc" },
         include: { program: true, cycles: { orderBy: { cycleNumber: "asc" } } },

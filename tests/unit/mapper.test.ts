@@ -115,6 +115,14 @@ describe("Recharge mapper", () => {
     expect(lines.every((l) => l.externalOrderId === "1305431804")).toBe(true);
   });
 
+  it("prepaid: one successful charge producing three shipment orders counts as three delivery facts (orders, not charges, are authoritative)", () => {
+    const mk = (id: number, at: string) => mapOrder(rcOrderSchema.parse({ id, charge_id: 777, status: "success", type: "recurring", processed_at: at, line_items: [{ purchase_item_id: 555, purchase_item_type: "subscription", external_product_id: "8807821312295", external_variant_id: "55983052521858" }] }));
+    const lines = collectSubscriptionLines([mk(1, "2026-01-01T00:00:00"), mk(2, "2026-02-01T00:00:00"), mk(3, "2026-03-01T00:00:00")]);
+    expect(lines).toHaveLength(3);
+    expect(new Set(lines.map((l) => l.data.externalChargeId))).toEqual(new Set(["777"]));
+    expect(lines.map((l) => l.externalOrderId)).toEqual(["1", "2", "3"]);
+  });
+
   it("treats legacy subscription_id line items as subscription lines", () => {
     const o = mapOrder(rcOrderSchema.parse({ id: 1, status: "success", type: "checkout", processed_at: "2026-01-01T00:00:00", line_items: [{ subscription_id: 42, external_product_id: { ecommerce: "1" }, external_variant_id: { ecommerce: "2" } }] }));
     expect(o.kind).toBe("CHECKOUT");

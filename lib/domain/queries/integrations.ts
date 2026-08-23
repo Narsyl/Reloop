@@ -67,12 +67,12 @@ export async function getLatestSyncs(ctx: Ctx, integrationIds: string[]) {
 export async function getCycleAuditSample(ctx: Ctx, integrationId: string, take = 10) {
   const db = dbFor(ctx);
   const subs = await db.subscription.findMany({
-    where: { integrationId, status: "ACTIVE", mappingStatus: "MAPPED", currentJourneyId: { not: null } },
-    orderBy: [{ currentJourney: { successfulCycles: "desc" } }, { externalCreatedAt: "asc" }],
+    where: { integrationId, status: "ACTIVE", mappingStatus: "MAPPED", latestJourneyId: { not: null } },
+    orderBy: [{ latestJourney: { successfulCycles: "desc" } }, { externalCreatedAt: "asc" }],
     take,
     include: {
       customer: true,
-      currentJourney: { include: { program: { select: { name: true } }, cycles: { orderBy: { cycleNumber: "asc" } } } },
+      latestJourney: { include: { program: { select: { name: true } }, cycles: { orderBy: { cycleNumber: "asc" } } } },
       orders: { orderBy: { processedAt: "asc" } },
       journeys: { select: { id: true, sequence: true, successfulCycles: true, programId: true, endReason: true } },
     },

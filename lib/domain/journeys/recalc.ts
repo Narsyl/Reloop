@@ -155,9 +155,34 @@ export async function recalculateJourneyForSubscription(
       }
     }
 
-    const currentJourneyId = computed.currentIndex === null ? null : journeyIds[computed.currentIndex] ?? null;
+    const latestJourneyId = computed.currentIndex === null ? null : journeyIds[computed.currentIndex] ?? null;
+
+    // Noise control: intentionally-unconfigured products are NOT exceptions. A
+    // subscription that WAS mapped and no longer resolves is — that is a broken
+    // previously-valid mapping and may silently stop intended automation.
+    if (sub.mappingStatus === "MAPPED" && computed.mappingStatus === "UNMAPPED" && sub.status === "ACTIVE") {
+      const open = await tx.exception.findFirst({ where: { organizationId: sub.organizationId, subscriptionId: sub.id, type: "MAPPING_BROKEN", status: "OPEN" }, select: { id: true } });
+      if (!open) {
+        await tx.exception.create({
+          data: {
+            organizationId: sub.organizationId,
+            severity: "WARNING",
+            type: "MAPPING_BROKEN",
+            title: "Subscription lost its programme mapping",
+            description: `This active subscription (${sub.productTitleSnapshot}) was mapped to a programme but its current product/variant no longer resolves to one. Its journey is paused until the mapping is restored; no automation can target it.`,
+            integrationId: sub.integrationId,
+            subscriptionId: sub.id,
+            metadataJson: { externalProductId: sub.externalProductId, externalVariantId: sub.externalVariantId, previousJourneyId: sub.latestJourneyId },
+          },
+        });
+        changed = true;
+      }
+    } else if (computed.mappingStatus === "MAPPED") {
+      // auto-resolve a previously raised MAPPING_BROKEN once it resolves again
+      await tx.exception.updateMany({ where: { organizationId: sub.organizationId, subscriptionId: sub.id, type: "MAPPING_BROKEN", status: "OPEN" }, data: { status: "RESOLVED", autoResolved: true, resolvedAt: asOf, resolutionNote: "Mapping resolves again after recalculation." } });
+    }
     if (
-      sub.currentJourneyId !== currentJourneyId ||
+      sub.latestJourneyId !== latestJourneyId ||
       sub.mappingStatus !== computed.mappingStatus ||
       sub.productId !== computed.currentProductId ||
       sub.variantId !== computed.currentVariantId
@@ -165,7 +190,7 @@ export async function recalculateJourneyForSubscription(
       await tx.subscription.update({
         where: { id: sub.id },
         data: {
-          currentJourneyId,
+          latestJourneyId,
           mappingStatus: computed.mappingStatus,
           productId: computed.currentProductId,
           variantId: computed.currentVariantId,

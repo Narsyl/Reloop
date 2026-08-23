@@ -59,7 +59,7 @@ export type ComputedSegment = {
 
 export type JourneyComputation = {
   segments: ComputedSegment[];
-  /** index into segments of the journey `Subscription.currentJourneyId` should point at, or null */
+  /** index into segments of the journey `Subscription.latestJourneyId` should point at, or null */
   currentIndex: number | null;
   mappingStatus: "MAPPED" | "UNMAPPED";
   unresolvedOrders: number;
@@ -88,8 +88,13 @@ export function computeJourneys(
     seg.endReason = reason;
   };
 
+  // A segment may inherit the subscription's creation date only if NO earlier order
+  // (resolved or not) precedes it — otherwise its start is its first counted order
+  // (e.g. a subscription that began on an unmapped product and later entered a programme).
+  let ordersSeen = 0;
   for (const o of orders) {
     const r = resolve(o.externalProductId, o.externalVariantId);
+    ordersSeen++;
     if (!r) {
       unresolvedOrders++;
       if (open) {
@@ -113,7 +118,7 @@ export function computeJourneys(
       variantId: r.variantId,
       externalProductId: o.externalProductId,
       externalVariantId: o.externalVariantId,
-      startedAt: segments.length === 0 && current.externalCreatedAt && current.externalCreatedAt < o.processedAt ? current.externalCreatedAt : o.processedAt,
+      startedAt: ordersSeen === 1 && current.externalCreatedAt && current.externalCreatedAt < o.processedAt ? current.externalCreatedAt : o.processedAt,
       endedAt: null,
       endReason: null,
       cycles: [{ cycleNumber: 1, externalOrderId: o.externalOrderId, processedAt: o.processedAt, orderKind: o.orderKind }],

@@ -11,25 +11,28 @@ export const metadata = { title: "Rules" };
 
 export default async function RulesPage() {
   const ctx = await requireOrg();
-  const rules = await listRules(ctx);
+  const { rules, archived } = await listRules(ctx);
   const canManage = hasRole(ctx, "ADMIN");
 
   return (
     <>
       <PageHeader
         title="Rules"
-        description="Each rule says: when a subscription program reaches a delivery cycle, add a fulfilment marker to the upcoming shipment. Rules start disabled until you activate them."
+        description="A rule says: when a subscription programme reaches a delivery cycle, add a fulfilment marker to the next shipment. Rules are drafted, validated and previewed here; none can plan or execute actions until the automation engine is enabled."
         actions={
           <Button render={<Link href="/rules/new" />} disabled={!canManage}>
             <Plus data-icon="inline-start" /> New rule
           </Button>
         }
       />
+      <div className="rounded-xl border border-status-info/30 bg-status-info-bg px-4 py-3 text-sm text-status-info">
+        Automation engine not enabled for this organisation — rules can be Draft, Ready or Disabled. Nothing is written to your subscription platform.
+      </div>
       {rules.length === 0 ? (
         <EmptyState
           icon={SlidersHorizontal}
           title="No rules yet"
-          description="Create your first rule once products are mapped to subscription programs and a fulfilment marker exists. Example: Morning Magic Powder · delivery 2 → Morning Magic 2."
+          description="Create your first rule: choose a subscription programme, the delivery cycle (2 or later), the fulfilment marker, and who counts towards the milestone — then review the impact preview built from your real subscriptions."
           action={
             <Button render={<Link href="/rules/new" />} disabled={!canManage}>
               <Plus data-icon="inline-start" /> New rule
@@ -45,19 +48,20 @@ export default async function RulesPage() {
               rule={{
                 id: r.id,
                 name: r.name,
-                enabled: r.enabled,
+                status: r.status,
                 cycleNumber: r.cycleNumber,
                 programName: r.program.name,
                 markerName: r.fulfillmentMarker.name,
-                markerSku: r.fulfillmentMarker.variant.sku,
+                markerTitle: r.fulfillmentMarker.title,
+                markerSku: r.fulfillmentMarker.sku,
+                eligibilityScope: r.eligibilityScope,
                 liveActions: r.liveActions,
-                totalActions: r._count.actions,
-                lastTriggeredAt: r.lastTriggeredAt,
               }}
             />
           ))}
         </ul>
       )}
+      {archived > 0 && <p className="text-xs text-muted-foreground">{archived} archived rule{archived === 1 ? "" : "s"} hidden.</p>}
     </>
   );
 }

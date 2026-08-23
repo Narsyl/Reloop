@@ -4,7 +4,7 @@ import type { SubscriptionStatus } from "@prisma/client";
 import { Repeat } from "lucide-react";
 import { requireOrg } from "@/lib/auth/tenancy";
 import { SUBSCRIPTION_PAGE_SIZE, listProgramsForFilter, listSubscriptions } from "@/lib/domain/queries/subscriptions";
-import { actionStatus, subscriptionStatus } from "@/lib/status";
+import { actionStatus, schedulingState, subscriptionStatus } from "@/lib/status";
 import { customerName, formatDateOnly } from "@/lib/format";
 import { PageHeader } from "@/components/layout/page-header";
 import { EmptyState } from "@/components/data/empty-state";
@@ -108,11 +108,16 @@ export default async function SubscriptionsPage({ searchParams }: PageProps<"/su
                     <TableCell>
                       <span className="block">{s.productTitleSnapshot}</span>
                       <span className="block text-xs text-muted-foreground">
-                        {s.currentJourney ? s.currentJourney.program.name : <StatusBadge status={{ label: "Unmapped", tone: "warning" }} />}
+                        {s.latestJourney ? s.latestJourney.program.name : <StatusBadge status={{ label: "Unmapped", tone: "warning" }} />}
                       </span>
                     </TableCell>
-                    <TableCell><StatusBadge status={subscriptionStatus[s.status]} /></TableCell>
-                    <TableCell className="tnum text-right">{s.currentJourney?.successfulCycles ?? "—"}</TableCell>
+                    <TableCell>
+                      <span className="flex flex-col items-start gap-1">
+                        <StatusBadge status={subscriptionStatus[s.status]} />
+                        {schedulingState(s.status, s.nextChargeDate) && <StatusBadge status={schedulingState(s.status, s.nextChargeDate)!} dot={false} />}
+                      </span>
+                    </TableCell>
+                    <TableCell className="tnum text-right">{s.latestJourney?.successfulCycles ?? "—"}</TableCell>
                     <TableCell className="tnum">{formatDateOnly(s.nextChargeDate)}</TableCell>
                     <TableCell>
                       {next ? (

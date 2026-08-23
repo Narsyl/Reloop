@@ -163,6 +163,17 @@ describe("computeJourneys", () => {
     expect(r.unresolvedOrders).toBe(2);
     expect(r.segments).toHaveLength(1);
     expect(r.segments[0].cycles).toEqual([expect.objectContaining({ cycleNumber: 1, externalOrderId: "mm1" })]);
+    // Amendment 9: a programme entered AFTER other-product history starts at its first counted order,
+    // not at subscription creation (2026-07-16 is Lion's Mane history)
+    expect(r.segments[0].startedAt).toEqual(d("2026-08-13"));
+  });
+
+  it("startedAt inherits subscription creation only when the first order belongs to the programme", () => {
+    const first = computeJourneys([order("o1", "2026-01-10", "mm")], current({ externalCreatedAt: d("2026-01-01") }), resolve, catalogue);
+    expect(first.segments[0].startedAt).toEqual(d("2026-01-01"));
+    const later = computeJourneys([order("u1", "2026-01-10", "unmapped"), order("o2", "2026-02-10", "mm")], current({ externalCreatedAt: d("2026-01-01") }), resolve, catalogue);
+    expect(later.segments[0].startedAt).toEqual(d("2026-02-10"));
+    expect(later.segments[0].cycles).toHaveLength(1);
   });
 
   it("duplicate order ids are not double counted by the caller contract (one fact per order)", () => {

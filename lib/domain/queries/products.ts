@@ -41,7 +41,8 @@ export async function listMarkers(ctx: Ctx) {
     orderBy: { name: "asc" },
     include: {
       variant: { include: { product: { select: { id: true, title: true } } } },
-      rules: { select: { id: true, name: true, enabled: true, cycleNumber: true, program: { select: { name: true } } } },
+      integration: { select: { id: true, displayName: true } },
+      rules: { where: { status: { not: "ARCHIVED" } }, select: { id: true, name: true, status: true, cycleNumber: true, program: { select: { name: true } } } },
     },
   });
   const lastUsed = await db.automationAction.groupBy({

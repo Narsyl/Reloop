@@ -132,13 +132,13 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
                   <TableRow key={s.id}>
                     <TableCell><Link href={`/subscriptions/${s.id}`} className="font-medium hover:underline">{customerName(s.customer)}</Link></TableCell>
                     <TableCell className="font-mono text-xs">{s.externalSubscriptionId}</TableCell>
-                    <TableCell className="text-muted-foreground">{s.currentJourney?.program.name}{s.journeys.length > 1 ? <span className="ml-1 text-xs">(journey {s.journeys.length})</span> : null}</TableCell>
-                    <TableCell className="tnum text-right font-semibold">{s.currentJourney?.successfulCycles ?? "—"}</TableCell>
-                    <TableCell className="tnum text-right">{s.currentJourney?.cycles.length ?? 0}</TableCell>
+                    <TableCell className="text-muted-foreground">{s.latestJourney?.program.name}{s.journeys.length > 1 ? <span className="ml-1 text-xs">(journey {s.journeys.length})</span> : null}</TableCell>
+                    <TableCell className="tnum text-right font-semibold">{s.latestJourney?.successfulCycles ?? "—"}</TableCell>
+                    <TableCell className="tnum text-right">{s.latestJourney?.cycles.length ?? 0}</TableCell>
                     <TableCell className="tnum text-right">{s.orders.length}</TableCell>
                     <TableCell className="max-w-xs">
                       <div className="flex flex-wrap gap-1">
-                        {(s.currentJourney?.cycles ?? []).map((c) => (
+                        {(s.latestJourney?.cycles ?? []).map((c) => (
                           <span key={c.id} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]" title={`cycle ${c.cycleNumber} · ${c.orderKind.toLowerCase()}`}>
                             #{c.externalOrderId} · {formatDate(c.processedAt, ctx.timezone, { year: undefined })}
                           </span>

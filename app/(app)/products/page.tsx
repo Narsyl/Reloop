@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Boxes, Tag } from "lucide-react";
 import { hasRole, requireOrg } from "@/lib/auth/tenancy";
 import { countUnmappedSubscriptions, listMarkers, listPrograms, listSubscriptionProducts } from "@/lib/domain/queries/products";
-import { activeStatus, enabledStatus, mappingStatus } from "@/lib/status";
+import { activeStatus, mappingStatus, ruleStatus } from "@/lib/status";
 import { formatRelative, pluralize } from "@/lib/format";
 import { PageHeader, SectionHeader } from "@/components/layout/page-header";
 import { EmptyState } from "@/components/data/empty-state";
@@ -11,6 +11,8 @@ import { StatusBadge } from "@/components/status/status-badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { AssignProductDialog, CreateProgramDialog, RemoveMappingButton } from "@/components/domain/program-dialogs";
+import { MarkerActiveToggle, MarkerDialog } from "@/components/domain/marker-dialog";
+import { listIntegrations } from "@/lib/domain/queries/settings";
 
 export const metadata = { title: "Products" };
 
@@ -18,9 +20,10 @@ export default async function ProductsPage({ searchParams }: PageProps<"/product
   const ctx = await requireOrg();
   const sp = await searchParams;
   const tab = typeof sp.tab === "string" && ["programs", "products", "markers"].includes(sp.tab) ? sp.tab : "programs";
-  const [programs, products, markers, unmapped] = await Promise.all([listPrograms(ctx), listSubscriptionProducts(ctx), listMarkers(ctx), countUnmappedSubscriptions(ctx)]);
+  const [programs, products, markers, unmapped, integrations] = await Promise.all([listPrograms(ctx), listSubscriptionProducts(ctx), listMarkers(ctx), countUnmappedSubscriptions(ctx), listIntegrations(ctx)]);
   const canManage = hasRole(ctx, "ADMIN");
   const programOptions = programs.filter((p) => p.active).map((p) => ({ id: p.id, name: p.name }));
+  const integrationOptions = integrations.filter((i) => i.status !== "DISCONNECTED").map((i) => ({ id: i.id, displayName: i.displayName }));
 
   return (
     <>
@@ -144,8 +147,17 @@ export default async function ProductsPage({ searchParams }: PageProps<"/product
         </TabsContent>
 
         <TabsContent value="markers" className="pt-4">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <SectionHeader title="Fulfilment markers" description="The £0 items inserted into shipments. Identity = external variant id, scoped to one store. Saving a marker writes nothing to the platform." />
+            {canManage && integrationOptions.length > 0 && <MarkerDialog integrations={integrationOptions} />}
+          </div>
           {markers.length === 0 ? (
-            <EmptyState icon={Tag} title="No fulfilment markers" description="A marker is the £0 product that tells fulfilment what to include — e.g. 'Morning Magic 2' (SKU MM-CYCLE-02). Markers are created from an imported product in Phase 4." />
+            <EmptyState
+              icon={Tag}
+              title="No fulfilment markers yet"
+              description="Create one by reading the store's existing one-times (to pre-fill from your manual test item) or by entering the Shopify variant id, title and SKU directly."
+              action={canManage && integrationOptions.length > 0 ? <MarkerDialog integrations={integrationOptions} /> : undefined}
+            />
           ) : (
             <ul className="grid gap-3 md:grid-cols-2">
               {markers.map((m) => (
@@ -154,11 +166,25 @@ export default async function ProductsPage({ searchParams }: PageProps<"/product
                     <div className="min-w-0">
                       <h3 className="text-sm font-semibold">{m.name}</h3>
                       <p className="text-xs text-muted-foreground">
-                        {m.variant.product.title} · {m.variant.title}
-                        {m.variant.sku && <span className="ml-1 font-mono">{m.variant.sku}</span>}
+                        {m.title ?? m.variant.product.title}
+                        {m.sku && <span className="ml-1 font-mono">{m.sku}</span>}
+                        <span className="ml-1">· {m.integration.displayName}</span>
                       </p>
+                      <p className="font-mono text-[11px] text-muted-foreground">variant {m.externalVariantId}{m.externalProductId ? ` · product ${m.externalProductId}` : ""} · {m.source.toLowerCase().replace(/_/g, " ")}</p>
                     </div>
-                    <StatusBadge status={activeStatus(m.active)} />
+                    <div className="flex flex-col items-end gap-1">
+                      <StatusBadge status={activeStatus(m.active)} />
+                      {canManage && (
+                        <div className="flex items-center gap-1">
+                          <MarkerDialog
+                            integrations={integrationOptions}
+                            initial={{ id: m.id, integrationId: m.integrationId, name: m.name, description: m.description ?? "", externalVariantId: m.externalVariantId, externalProductId: m.externalProductId ?? "", title: m.title ?? "", sku: m.sku ?? "", source: m.source }}
+                            trigger={<Button size="xs" variant="ghost">Edit</Button>}
+                          />
+                          <MarkerActiveToggle id={m.id} name={m.name} active={m.active} usedByRules={m.rules.filter((r) => r.status === "READY" || r.status === "ACTIVE").length} />
+                        </div>
+                      )}
+                    </div>
                   </div>
                   {m.description && <p className="text-sm text-foreground/80">{m.description}</p>}
                   <div className="space-y-1">
@@ -170,7 +196,7 @@ export default async function ProductsPage({ searchParams }: PageProps<"/product
                         {m.rules.map((r) => (
                           <li key={r.id} className="flex items-center gap-2">
                             <Link href={`/rules/${r.id}`} className="hover:underline">{r.name}</Link>
-                            <StatusBadge status={enabledStatus(r.enabled)} />
+                            <StatusBadge status={ruleStatus[r.status]} />
                           </li>
                         ))}
                       </ul>

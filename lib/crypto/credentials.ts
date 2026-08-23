@@ -141,3 +141,19 @@ export function redactSecret(value: string | undefined | null): string {
   if (value.length <= 8) return "••••";
   return `${value.slice(0, 4)}…${value.slice(-2)} (${value.length} chars)`;
 }
+
+/**
+ * True when this host holds the key needed to decrypt `blob` (format + key id
+ * check only — no decryption). Used by background schedulers to skip rows
+ * that can never be opened here (seed placeholders, keys rotated out) instead
+ * of creating a failing run every slot.
+ */
+export function hasDecryptionKeyFor(blob: string): boolean {
+  const parts = blob.split(".");
+  if (parts.length !== 5 || parts[0] !== FORMAT_VERSION) return false;
+  try {
+    return loadKeyRing().keys.has(parts[1]);
+  } catch {
+    return false;
+  }
+}

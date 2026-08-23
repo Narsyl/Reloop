@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import { requireOrg } from "@/lib/auth/tenancy";
 import { getSubscriptionDetail } from "@/lib/domain/queries/subscriptions";
-import { actionStatus, exceptionSeverity, subscriptionStatus } from "@/lib/status";
+import { actionStatus, exceptionSeverity, schedulingState, subscriptionStatus } from "@/lib/status";
 import { customerName, formatDate, formatDateOnly, formatDateTime, formatMoney, ordinal } from "@/lib/format";
 import { PageHeader, SectionHeader } from "@/components/layout/page-header";
 import { DetailList, DetailRow } from "@/components/data/detail-row";
@@ -19,7 +19,7 @@ export default async function SubscriptionDetailPage({ params }: PageProps<"/sub
   const data = await getSubscriptionDetail(ctx, id);
   if (!data) notFound();
   const { subscription: s, activity } = data;
-  const journey = s.currentJourney;
+  const journey = s.latestJourney;
   const liveActions = s.actions.filter((a) => ["PLANNED", "EXECUTING", "ATTACHED", "FAILED"].includes(a.status));
   const nextCycle = journey ? journey.successfulCycles + 1 : null;
   const nextAction = liveActions.find((a) => a.journeyId === journey?.id && a.targetCycle === nextCycle);
@@ -30,7 +30,7 @@ export default async function SubscriptionDetailPage({ params }: PageProps<"/sub
       <PageHeader
         eyebrow={<Link href="/subscriptions" className="hover:underline">Subscriptions</Link>}
         title={s.productTitleSnapshot}
-        meta={<StatusBadge status={subscriptionStatus[s.status]} size="md" />}
+        meta={<><StatusBadge status={subscriptionStatus[s.status]} size="md" />{schedulingState(s.status, s.nextChargeDate) && <StatusBadge status={schedulingState(s.status, s.nextChargeDate)!} size="md" />}</>}
         description={
           <span>
             {customerName(s.customer)}

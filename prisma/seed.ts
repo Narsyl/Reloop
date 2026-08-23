@@ -164,25 +164,30 @@ async function seedDemoOrg(ownerId: string, viewerId: string) {
   const progShil = await program("Shilajit", "No milestone gifts configured yet.", [{ productId: shilajit.p.id }]);
 
   // ── markers ──
-  const markerMM2 = await prisma.fulfillmentMarker.create({
-    data: { ...O, name: "Morning Magic Cycle 2", description: "Fulfilment adds the free electric whisk for second Morning Magic delivery.", variantId: mkMM2.vs[0].id },
+  const mk = (name: string, description: string, prod: typeof mkMM2) => ({
+    ...I,
+    name,
+    description,
+    variantId: prod.vs[0].id,
+    externalVariantId: prod.vs[0].externalVariantId,
+    externalProductId: prod.p.externalProductId,
+    title: prod.p.title,
+    sku: prod.vs[0].sku,
+    source: "CATALOGUE" as const,
   });
-  const markerMM6 = await prisma.fulfillmentMarker.create({
-    data: { ...O, name: "Morning Magic Cycle 6", description: "Six-month loyalty gift: ceramic cup.", variantId: mkMM6.vs[0].id },
-  });
-  const markerCacao3 = await prisma.fulfillmentMarker.create({
-    data: { ...O, name: "Cacao Cycle 3", description: "Third cacao delivery includes the wooden whisk.", variantId: mkCacao3.vs[0].id },
-  });
+  const markerMM2 = await prisma.fulfillmentMarker.create({ data: mk("Morning Magic Cycle 2", "Fulfilment adds the free electric whisk for second Morning Magic delivery.", mkMM2) });
+  const markerMM6 = await prisma.fulfillmentMarker.create({ data: mk("Morning Magic Cycle 6", "Six-month loyalty gift: ceramic cup.", mkMM6) });
+  const markerCacao3 = await prisma.fulfillmentMarker.create({ data: mk("Cacao Cycle 3", "Third cacao delivery includes the wooden whisk.", mkCacao3) });
 
   // ── rules ──
   const ruleMM2 = await prisma.automationRule.create({
-    data: { ...O, name: "Morning Magic Cycle 2 Gift", enabled: true, programId: progMM.id, cycleNumber: 2, fulfillmentMarkerId: markerMM2.id, activatedAt: daysAgo(40), lastTriggeredAt: daysAgo(1), createdById: ownerId, existingPolicy: "INCLUDE_EXISTING" },
+    data: { ...O, name: "Morning Magic Cycle 2 Gift", status: "READY", eligibilityScope: "PER_SUBSCRIPTION", milestoneKey: `${org.id}:${progMM.id}:2`, programId: progMM.id, cycleNumber: 2, fulfillmentMarkerId: markerMM2.id, createdById: ownerId, existingPolicy: "INCLUDE_EXISTING" },
   });
   const ruleCacao3 = await prisma.automationRule.create({
-    data: { ...O, name: "Cacao Cycle 3 Whisk", enabled: true, programId: progCacao.id, cycleNumber: 3, fulfillmentMarkerId: markerCacao3.id, activatedAt: daysAgo(25), lastTriggeredAt: daysAgo(3), createdById: ownerId },
+    data: { ...O, name: "Cacao Cycle 3 Whisk", status: "READY", eligibilityScope: "PER_SUBSCRIPTION", milestoneKey: `${org.id}:${progCacao.id}:3`, programId: progCacao.id, cycleNumber: 3, fulfillmentMarkerId: markerCacao3.id, createdById: ownerId },
   });
   await prisma.automationRule.create({
-    data: { ...O, name: "Morning Magic Six-Month Cup", enabled: false, programId: progMM.id, cycleNumber: 6, fulfillmentMarkerId: markerMM6.id, createdById: ownerId, description: "Awaiting stock confirmation before activation." },
+    data: { ...O, name: "Morning Magic Six-Month Cup", status: "DRAFT", milestoneKey: `${org.id}:${progMM.id}:6`, programId: progMM.id, cycleNumber: 6, fulfillmentMarkerId: markerMM6.id, createdById: ownerId, description: "Awaiting stock confirmation before activation." },
   });
 
   // ── customers ──
@@ -341,7 +346,7 @@ async function seedDemoOrg(ownerId: string, viewerId: string) {
         },
       });
       journeyId = journey.id;
-      await prisma.subscription.update({ where: { id: sub.id }, data: { currentJourneyId: journey.id } });
+      await prisma.subscription.update({ where: { id: sub.id }, data: { latestJourneyId: journey.id } });
       for (let c = 1; c <= spec.cycles; c++) {
         const processedAt = new Date(nextChargeAt.getTime() - (spec.cycles - c + 1) * intervalDays * DAY);
         await prisma.journeyCycle.create({
@@ -555,7 +560,7 @@ async function seedSecondOrg(ownerId: string) {
   const j = await prisma.subscriptionJourney.create({
     data: { ...O, subscriptionId: sub.id, programId: program.id, productId: p.id, variantId: v.id, externalProductId: p.externalProductId, externalVariantId: v.externalVariantId, sequence: 1, startedAt: daysAgo(51), successfulCycles: 2 },
   });
-  await prisma.subscription.update({ where: { id: sub.id }, data: { currentJourneyId: j.id } });
+  await prisma.subscription.update({ where: { id: sub.id }, data: { latestJourneyId: j.id } });
   await prisma.journeyCycle.createMany({
     data: [1, 2].map((n) => ({ ...O, journeyId: j.id, cycleNumber: n, externalOrderId: nextId(), orderKind: n === 1 ? "CHECKOUT" : "RECURRING", processedAt: daysAgo(51 - (n - 1) * 30), source: "BACKFILL" })),
   });

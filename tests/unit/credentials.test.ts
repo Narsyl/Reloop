@@ -4,6 +4,7 @@ import {
   blobKeyId,
   decryptCredentials,
   encryptCredentials,
+  hasDecryptionKeyFor,
   loadKeyRing,
   needsRotation,
   redactSecret,
@@ -17,6 +18,14 @@ describe("credential encryption", () => {
   beforeEach(() => {
     resetKeyRingCache();
     process.env.CREDENTIAL_ENCRYPTION_KEYS = `k1:${KEY_A}`;
+  });
+
+  it("hasDecryptionKeyFor: true only for well-formed blobs whose key id is on this host's ring", () => {
+    const blob = encryptCredentials({ apiToken: "x" }, "integration_1");
+    expect(hasDecryptionKeyFor(blob)).toBe(true);
+    expect(hasDecryptionKeyFor("v1.seed.AAAA.AAAA.AAAA")).toBe(false); // seed placeholder → scheduler skips it
+    expect(hasDecryptionKeyFor("garbage")).toBe(false);
+    expect(hasDecryptionKeyFor("")).toBe(false);
   });
 
   it("round-trips a secret object bound to an AAD", () => {

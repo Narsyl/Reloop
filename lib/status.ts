@@ -12,6 +12,8 @@
 import type {
   ActionStatus,
   AutomationMode,
+  EligibilityScope,
+  RuleStatus,
   ExceptionSeverity,
   ExceptionStatus,
   IntegrationEventStatus,
@@ -81,6 +83,23 @@ export const mappingStatus: Record<MappingStatus, StatusMeta> = {
 
 export const enabledStatus = (enabled: boolean): StatusMeta =>
   enabled ? { label: "Enabled", tone: "success" } : { label: "Disabled", tone: "neutral" };
+
+export const ruleStatus: Record<RuleStatus, StatusMeta> = {
+  DRAFT: { label: "Draft", tone: "neutral", description: "Being configured. Cannot plan actions." },
+  READY: { label: "Ready", tone: "info", description: "Valid and complete; awaiting activation. Cannot plan actions." },
+  ACTIVE: { label: "Active", tone: "success", description: "Plans actions for qualifying subscriptions." },
+  DISABLED: { label: "Disabled", tone: "neutral", description: "Intentionally off." },
+  ARCHIVED: { label: "Archived", tone: "neutral", description: "Retired; its milestone is free for a new rule." },
+};
+
+export const eligibilityScopeLabel: Record<EligibilityScope, { label: string; description: string }> = {
+  PER_SUBSCRIPTION: { label: "Per subscription", description: "Each subscription restarts milestone eligibility. A returning customer's new subscription can qualify again." },
+  CUSTOMER_PROGRAM: { label: "Customer programme", description: "Lifetime deliveries of the same customer in this programme count, across cancelled and new subscriptions." },
+};
+
+/** Operational scheduling state derived from provider data — never invented as a status. */
+export const schedulingState = (status: SubscriptionStatus, nextChargeDate: string | null): StatusMeta | null =>
+  status === "ACTIVE" && !nextChargeDate ? { label: "No upcoming charge", tone: "warning", description: "Active in the platform but nothing is scheduled (e.g. retries exhausted). Ineligible for planned markers until a charge is scheduled again." } : null;
 
 export const activeStatus = (active: boolean): StatusMeta =>
   active ? { label: "Active", tone: "success" } : { label: "Inactive", tone: "neutral" };

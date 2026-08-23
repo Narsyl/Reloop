@@ -96,7 +96,7 @@ describe("sync idempotency", () => {
     expect(await snapshot()).toEqual({ p: 2, v: 3, c: 2, s: 2, o: 4, j: 0, cy: 0 });
     const s123 = await prisma.subscription.findFirstOrThrow({ where: { organizationId: org.id, externalSubscriptionId: "123" } });
     expect(s123.mappingStatus).toBe("UNMAPPED");
-    expect(s123.currentJourneyId).toBeNull();
+    expect(s123.latestJourneyId).toBeNull();
     expect(s123.nextChargeDate).toBe("2026-09-21");
     expect(s123.productId).not.toBeNull(); // catalogue link exists even when unmapped
   });
@@ -111,10 +111,10 @@ describe("sync idempotency", () => {
     const mm = await prisma.product.findFirstOrThrow({ where: { organizationId: org.id, externalProductId: "8001" } });
     await prisma.subscriptionProgramProduct.create({ data: { organizationId: org.id, programId, productId: mm.id, variantId: null, variantScope: "*" } });
     await recalculateJourneysBatch(ctx(), integrationId, 0, 100);
-    const s123 = await prisma.subscription.findFirstOrThrow({ where: { organizationId: org.id, externalSubscriptionId: "123" }, include: { currentJourney: { include: { cycles: { orderBy: { cycleNumber: "asc" } } } } } });
+    const s123 = await prisma.subscription.findFirstOrThrow({ where: { organizationId: org.id, externalSubscriptionId: "123" }, include: { latestJourney: { include: { cycles: { orderBy: { cycleNumber: "asc" } } } } } });
     expect(s123.mappingStatus).toBe("MAPPED");
-    expect(s123.currentJourney?.successfulCycles).toBe(3);
-    expect(s123.currentJourney?.cycles.map((c) => [c.cycleNumber, c.externalOrderId, c.orderKind])).toEqual([[1, "5001", "CHECKOUT"], [2, "5002", "RECURRING"], [3, "5003", "RECURRING"]]);
+    expect(s123.latestJourney?.successfulCycles).toBe(3);
+    expect(s123.latestJourney?.cycles.map((c) => [c.cycleNumber, c.externalOrderId, c.orderKind])).toEqual([[1, "5001", "CHECKOUT"], [2, "5002", "RECURRING"], [3, "5003", "RECURRING"]]);
     const s124 = await prisma.subscription.findFirstOrThrow({ where: { organizationId: org.id, externalSubscriptionId: "124" } });
     expect(s124.mappingStatus).toBe("UNMAPPED");
     expect(await prisma.subscriptionJourney.count({ where: { organizationId: org.id } })).toBe(1);
@@ -136,13 +136,13 @@ describe("sync idempotency", () => {
     const fake2 = { ...fake, listOrders: () => onePage([...orders, extra]) } as unknown as RechargeConnector;
     await importOrdersPage(ctx(), fake2, integrationId, null);
     // journey still says 3 — stale but not wrong-duplicated
-    let s123 = await prisma.subscription.findFirstOrThrow({ where: { organizationId: org.id, externalSubscriptionId: "123" }, include: { currentJourney: true } });
-    expect(s123.currentJourney?.successfulCycles).toBe(3);
+    let s123 = await prisma.subscription.findFirstOrThrow({ where: { organizationId: org.id, externalSubscriptionId: "123" }, include: { latestJourney: true } });
+    expect(s123.latestJourney?.successfulCycles).toBe(3);
     // retry completes the pipeline
     await recalculateJourneysBatch(ctx(), integrationId, 0, 100);
     await recalculateJourneysBatch(ctx(), integrationId, 0, 100);
-    s123 = await prisma.subscription.findFirstOrThrow({ where: { organizationId: org.id, externalSubscriptionId: "123" }, include: { currentJourney: true } });
-    expect(s123.currentJourney?.successfulCycles).toBe(4);
+    s123 = await prisma.subscription.findFirstOrThrow({ where: { organizationId: org.id, externalSubscriptionId: "123" }, include: { latestJourney: true } });
+    expect(s123.latestJourney?.successfulCycles).toBe(4);
     expect(await prisma.journeyCycle.count({ where: { organizationId: org.id } })).toBe(4);
   });
 
@@ -151,10 +151,10 @@ describe("sync idempotency", () => {
     const fake3 = { ...fake, listSubscriptions: (o: { status: string }) => onePage(o.status === "cancelled" ? [cancelled] : o.status === "active" ? [subs[1]] : []) } as unknown as RechargeConnector;
     for (const status of ["active", "cancelled", "expired"] as const) await importSubscriptionsPage(ctx(), fake3, integrationId, status, null);
     await recalculateJourneysBatch(ctx(), integrationId, 0, 100);
-    const s123 = await prisma.subscription.findFirstOrThrow({ where: { organizationId: org.id, externalSubscriptionId: "123" }, include: { currentJourney: true } });
+    const s123 = await prisma.subscription.findFirstOrThrow({ where: { organizationId: org.id, externalSubscriptionId: "123" }, include: { latestJourney: true } });
     expect(s123.status).toBe("CANCELLED");
-    expect(s123.currentJourney?.endReason).toBe("CANCELLED");
-    expect(s123.currentJourney?.successfulCycles).toBe(4);
+    expect(s123.latestJourney?.endReason).toBe("CANCELLED");
+    expect(s123.latestJourney?.successfulCycles).toBe(4);
     expect(await prisma.subscription.count({ where: { organizationId: org.id } })).toBe(2);
   });
 });

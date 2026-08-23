@@ -2,6 +2,7 @@ import { cron } from "inngest";
 import { inngest } from "@/lib/jobs/inngest";
 import { runIntegrationSync } from "./sync";
 import { recalculateJourneys } from "./recalc";
+import { scheduledIncrementalSync } from "./incremental";
 
 /**
  * Function registry served by /api/inngest.
@@ -19,4 +20,4 @@ export const heartbeat = inngest.createFunction(
   },
 );
 
-export const functions = [heartbeat, runIntegrationSync, recalculateJourneys];
+export const functions = [heartbeat, runIntegrationSync, recalculateJourneys, scheduledIncrementalSync];

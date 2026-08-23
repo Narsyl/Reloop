@@ -65,7 +65,7 @@ async function seedOrg(org: { id: string; slug: string; name: string }, userId: 
   ids.SubscriptionProgramProduct = pp.id;
 
   const marker = await prisma.fulfillmentMarker.create({
-    data: { organizationId: org.id, name: "Marker", variantId: variant.id },
+    data: { organizationId: org.id, integrationId: integ.id, name: "Marker", variantId: variant.id, externalVariantId: variant.externalVariantId, externalProductId: "p1", title: "Marker item", sku: "MK-1", source: "MANUAL" },
   });
   ids.FulfillmentMarker = marker.id;
 
@@ -100,7 +100,7 @@ async function seedOrg(org: { id: string; slug: string; name: string }, userId: 
     },
   });
   ids.SubscriptionJourney = journey.id;
-  await prisma.subscription.update({ where: { id: sub.id }, data: { currentJourneyId: journey.id } });
+  await prisma.subscription.update({ where: { id: sub.id }, data: { latestJourneyId: journey.id } });
 
   const cycle = await prisma.journeyCycle.create({
     data: {
