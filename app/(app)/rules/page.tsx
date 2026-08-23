@@ -18,24 +18,24 @@ export default async function RulesPage() {
     <>
       <PageHeader
         title="Rules"
-        description="A rule says: when a subscription programme reaches a delivery cycle, add a fulfilment marker to the next shipment. Rules are drafted, validated and previewed here; none can plan or execute actions until the automation engine is enabled."
+        description="Legacy configuration, kept read-only for audit. Milestones are now configured once on a reusable reward schedule and resolved per programme by the planner."
         actions={
-          <Button render={<Link href="/rules/new" />} disabled={!canManage}>
-            <Plus data-icon="inline-start" /> New rule
+          <Button render={<Link href="/rewards" />}>
+            <Plus data-icon="inline-start" /> Reward schedules
           </Button>
         }
       />
       <div className="rounded-xl border border-status-info/30 bg-status-info-bg px-4 py-3 text-sm text-status-info">
-        Automation engine not enabled for this organisation — rules can be Draft, Ready or Disabled. Nothing is written to your subscription platform.
+        Rules are legacy: they are never planned from. Each rule here is either archived (migrated to a schedule milestone — see its activity) or awaiting archival. Configure rewards under <Link href="/rewards" className="underline">Rewards</Link>.
       </div>
       {rules.length === 0 ? (
         <EmptyState
           icon={SlidersHorizontal}
-          title="No rules yet"
-          description="Create your first rule: choose a subscription programme, the delivery cycle (2 or later), the fulfilment marker, and who counts towards the milestone — then review the impact preview built from your real subscriptions."
+          title="No legacy rules"
+          description="Reward configuration lives under Rewards (schedules → milestones → programme marker bindings)."
           action={
-            <Button render={<Link href="/rules/new" />} disabled={!canManage}>
-              <Plus data-icon="inline-start" /> New rule
+            <Button render={<Link href="/rewards" />} disabled={!canManage}>
+              <Plus data-icon="inline-start" /> Reward schedules
             </Button>
           }
         />

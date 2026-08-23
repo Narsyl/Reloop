@@ -42,6 +42,8 @@ export async function listMarkers(ctx: Ctx) {
     include: {
       variant: { include: { product: { select: { id: true, title: true } } } },
       integration: { select: { id: true, displayName: true } },
+      rewardItem: { select: { id: true, name: true } },
+      milestoneBindings: { where: { active: true }, select: { id: true, program: { select: { name: true } }, milestone: { select: { cycleNumber: true, schedule: { select: { name: true } } } } } },
       rules: { where: { status: { not: "ARCHIVED" } }, select: { id: true, name: true, status: true, cycleNumber: true, program: { select: { name: true } } } },
     },
   });

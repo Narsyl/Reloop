@@ -24,12 +24,14 @@ export type MarkerFormInitial = {
   sku: string;
   source: "MANUAL" | "CATALOGUE" | "DISCOVERED_ONETIME";
   placeholder?: boolean;
+  rewardItemId?: string;
+  operationalNote?: string;
 };
 
-export function MarkerDialog({ integrations, initial, trigger }: { integrations: { id: string; displayName: string }[]; initial?: MarkerFormInitial; trigger?: React.ReactNode }) {
+export function MarkerDialog({ integrations, rewardItems = [], initial, trigger }: { integrations: { id: string; displayName: string }[]; rewardItems?: { id: string; name: string }[]; initial?: MarkerFormInitial; trigger?: React.ReactNode }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState<MarkerFormInitial>(initial ?? { integrationId: integrations[0]?.id ?? "", name: "", description: "", externalVariantId: "", externalProductId: "", title: "", sku: "", source: "MANUAL", placeholder: false });
+  const [form, setForm] = useState<MarkerFormInitial>(initial ?? { integrationId: integrations[0]?.id ?? "", name: "", description: "", externalVariantId: "", externalProductId: "", title: "", sku: "", source: "MANUAL", placeholder: false, rewardItemId: "", operationalNote: "" });
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [discovered, setDiscovered] = useState<DiscoveredMarker[] | null>(null);
   const [discovering, startDiscover] = useTransition();
@@ -135,8 +137,20 @@ export function MarkerDialog({ integrations, initial, trigger }: { integrations:
               <Input id="mk-prod" value={form.externalProductId} onChange={(e) => setForm({ ...form, externalProductId: e.target.value })} className="font-mono" />
               {err("externalProductId") && <p className="text-xs text-status-danger">{err("externalProductId")}</p>}
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="mk-reward">Reward item <span className="text-muted-foreground">(what it means)</span></Label>
+              <select id="mk-reward" className={selectCls} value={form.rewardItemId ?? ""} onChange={(e) => setForm({ ...form, rewardItemId: e.target.value })}>
+                <option value="">— not set —</option>
+                {rewardItems.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+              <p className="text-[11px] text-muted-foreground">Required before the marker can be bound to a schedule milestone (the binding is verified against it).</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="mk-opnote">Operational note <span className="text-muted-foreground">(e.g. &ldquo;Include cup&rdquo;)</span></Label>
+              <Input id="mk-opnote" value={form.operationalNote ?? ""} onChange={(e) => setForm({ ...form, operationalNote: e.target.value })} placeholder="Include cup" />
+            </div>
             <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="mk-desc">Operational note <span className="text-muted-foreground">(internal)</span></Label>
+              <Label htmlFor="mk-desc">Internal description</Label>
               <Textarea id="mk-desc" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Fulfilment team adds the free whisk." />
             </div>
             <label className="flex items-start gap-2 rounded-lg border border-dashed border-border p-3 text-xs sm:col-span-2">

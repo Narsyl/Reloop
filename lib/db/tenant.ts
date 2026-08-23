@@ -39,6 +39,10 @@ export const TENANT_MODELS = [
   "IntegrationSync",
   "SubscriptionOrder",
   "PlannerRun",
+  "RewardItem",
+  "RewardSchedule",
+  "RewardScheduleMilestone",
+  "ProgramMilestoneMarker",
 ] as const satisfies readonly Prisma.ModelName[];
 
 const TENANT_MODEL_SET: ReadonlySet<string> = new Set(TENANT_MODELS);

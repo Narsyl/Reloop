@@ -186,6 +186,16 @@ async function seedOrg(org: { id: string; slug: string; name: string }, userId: 
   });
   ids.PlannerRun = plannerRun.id;
 
+  const rewardItem = await prisma.rewardItem.create({ data: { organizationId: org.id, name: "Whisk" } });
+  ids.RewardItem = rewardItem.id;
+  const rewardSchedule = await prisma.rewardSchedule.create({ data: { organizationId: org.id, name: "Schedule A" } });
+  ids.RewardSchedule = rewardSchedule.id;
+  const milestone = await prisma.rewardScheduleMilestone.create({ data: { organizationId: org.id, scheduleId: rewardSchedule.id, cycleNumber: 2, rewardItemId: rewardItem.id, executionMode: "UPCOMING_RENEWAL", eligibilityScope: "CUSTOMER_PROGRAM" } });
+  ids.RewardScheduleMilestone = milestone.id;
+  await prisma.subscriptionProgram.update({ where: { id: program.id }, data: { rewardScheduleId: rewardSchedule.id } });
+  const binding = await prisma.programMilestoneMarker.create({ data: { organizationId: org.id, programId: program.id, rewardScheduleMilestoneId: milestone.id, fulfillmentMarkerId: marker.id } });
+  ids.ProgramMilestoneMarker = binding.id;
+
   const so = await prisma.subscriptionOrder.create({
     data: {
       organizationId: org.id,

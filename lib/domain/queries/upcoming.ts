@@ -19,6 +19,8 @@ const actionInclude = {
   journey: { include: { program: { select: { id: true, name: true } } } },
   fulfillmentMarker: { select: { id: true, name: true, title: true, sku: true, externalVariantId: true, placeholder: true } },
   rule: { select: { id: true, name: true, eligibilityScope: true, status: true, cycleNumber: true } },
+  milestone: { select: { id: true, cycleNumber: true, executionMode: true, eligibilityScope: true, rewardItem: { select: { id: true, name: true } }, schedule: { select: { id: true, name: true, status: true } } } },
+  program: { select: { id: true, name: true } },
   integration: { select: { id: true, displayName: true, automationMode: true } },
 } satisfies Prisma.AutomationActionInclude;
 

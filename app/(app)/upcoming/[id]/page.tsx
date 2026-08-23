@@ -37,7 +37,7 @@ export default async function ActionDetailPage({ params }: PageProps<"/upcoming/
       <PageHeader
         eyebrow={<Link href="/upcoming" className="hover:underline">Upcoming</Link>}
         title={`${customerName(a.subscription.customer)} · ${a.journey.program.name} delivery ${a.targetCycle}`}
-        description={`→ ${a.fulfillmentMarker.name}${a.targetChargeDate ? ` · target charge ${formatDateOnly(a.targetChargeDate)}` : ""}`}
+        description={`→ ${a.fulfillmentMarker.name}${a.milestone ? ` (${a.milestone.rewardItem.name})` : ""}${a.targetChargeDate ? ` · target charge ${formatDateOnly(a.targetChargeDate)}` : ""}`}
         meta={<><StatusBadge status={actionStatus[a.status]} size="md" /><StatusBadge status={dryRunState(a, now)} size="md" /><StatusBadge status={automationMode[a.integration.automationMode]} size="md" /></>}
         actions={canOperate && a.status === "PLANNED" ? <DryRunButton actionId={a.id} /> : undefined}
       />
@@ -49,7 +49,8 @@ export default async function ActionDetailPage({ params }: PageProps<"/upcoming/
           <Row label="Subscription"><Link href={`/subscriptions/${a.subscriptionId}`} className="hover:underline">{a.subscription.productTitleSnapshot}</Link> <span className="ml-1 font-mono text-xs text-muted-foreground">{a.subscription.externalSubscriptionId}</span> · {a.subscription.status}</Row>
           <Row label="Programme">{a.journey.program.name}</Row>
           <Row label="Journey cycles">{a.journey.successfulCycles} successful {a.journey.successfulCycles === 1 ? "delivery" : "deliveries"}{a.journey.cycles.length ? <span className="block text-xs text-muted-foreground">{a.journey.cycles.map((c) => `#${c.cycleNumber} order ${c.externalOrderId} · ${formatDateOnly(c.processedAt.toISOString().slice(0, 10))}`).join(" · ")}</span> : null}</Row>
-          <Row label="Rule">{a.rule ? <><Link href={`/rules/${a.rule.id}`} className="hover:underline">{a.rule.name}</Link> <StatusBadge status={ruleStatus[a.rule.status]} /></> : <span className="text-muted-foreground">rule removed</span>}</Row>
+          <Row label="Milestone">{a.milestone ? <><Link href={`/rewards/${a.milestone.schedule.id}`} className="hover:underline">{a.milestone.schedule.name}</Link> · delivery {a.milestone.cycleNumber} → <span className="font-medium">{a.milestone.rewardItem.name}</span> <span className="ml-1 text-xs text-muted-foreground">({a.milestone.executionMode === "INITIAL_CHECKOUT" ? "initial checkout" : "upcoming renewal"})</span></> : <span className="text-muted-foreground">—</span>}</Row>
+          {a.rule ? <Row label="Legacy rule"><Link href={`/rules/${a.rule.id}`} className="hover:underline">{a.rule.name}</Link> <StatusBadge status={ruleStatus[a.rule.status]} /></Row> : null}
           <Row label="Eligibility scope">{a.eligibilityScope ? <>{eligibilityScopeLabel[a.eligibilityScope].label}<span className="block text-xs text-muted-foreground">{eligibilityScopeLabel[a.eligibilityScope].description}</span></> : "—"}</Row>
           <Row label="Target cycle">{a.targetCycle}</Row>
           <Row label="Target charge date">{a.targetChargeDate ? formatDateOnly(a.targetChargeDate) : "—"} <span className="ml-1 font-mono text-xs text-muted-foreground">{a.targetChargeDate}</span></Row>

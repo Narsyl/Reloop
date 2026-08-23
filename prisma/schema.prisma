@@ -106,6 +106,10 @@ model Organization {
   syncs              IntegrationSync[]
   subscriptionOrders SubscriptionOrder[]
   plannerRuns        PlannerRun[]
+  rewardItems        RewardItem[]
+  rewardSchedules    RewardSchedule[]
+  rewardMilestones   RewardScheduleMilestone[]
+  milestoneMarkers   ProgramMilestoneMarker[]
 }
 
 enum OrganizationRole {
@@ -270,10 +274,18 @@ model SubscriptionProgram {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  products     SubscriptionProgramProduct[]
-  journeys     SubscriptionJourney[]
-  rules        AutomationRule[]
+  // Reward configuration (Phase 4b): one reusable schedule per programme. Configuration only —
+  // lifecycle continuity (journeys, cycles) never depends on it.
+  rewardScheduleId         String?
+  rewardScheduleAssignedAt DateTime?
+
+  organization     Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  products         SubscriptionProgramProduct[]
+  journeys         SubscriptionJourney[]
+  rules            AutomationRule[]
+  rewardSchedule   RewardSchedule?              @relation(fields: [rewardScheduleId], references: [id], onDelete: SetNull)
+  milestoneMarkers ProgramMilestoneMarker[]
+  actions          AutomationAction[]
 
   @@unique([organizationId, name])
   @@index([organizationId, active])
@@ -325,14 +337,19 @@ model FulfillmentMarker {
   // Configuration-only stand-in (e.g. a discovered paid one-time used to validate a rule).
   // Never executable: READY rules and the planner refuse placeholder markers.
   placeholder       Boolean      @default(false)
+  // Operational meaning (what physically happens) — organisation-owned RewardItem, e.g. "Cup".
+  rewardItemId      String?
+  operationalNote   String?
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
-  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  integration  Integration        @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  variant      ProductVariant     @relation(fields: [variantId], references: [id], onDelete: Restrict)
-  rules        AutomationRule[]
-  actions      AutomationAction[]
+  organization      Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration       Integration              @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  variant           ProductVariant           @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  rewardItem        RewardItem?              @relation(fields: [rewardItemId], references: [id], onDelete: SetNull)
+  milestoneBindings ProgramMilestoneMarker[]
+  rules             AutomationRule[]
+  actions           AutomationAction[]
 
   @@unique([organizationId, name])
   @@unique([integrationId, externalVariantId])
@@ -523,27 +540,29 @@ enum EligibilityScope {
 }
 
 model AutomationRule {
-  id                  String                     @id @default(cuid())
-  organizationId      String
-  name                String
-  description         String?
-  status              RuleStatus                 @default(DRAFT)
-  priority            Int                        @default(100)
-  triggerType         RuleTriggerType            @default(SUBSCRIPTION_CYCLE)
-  programId           String
-  cycleNumber         Int // >= 2 (delivery 1 is the checkout order; DB check constraint + domain validation)
-  actionType          RuleActionType             @default(ADD_FULFILLMENT_MARKER)
-  fulfillmentMarkerId String
-  eligibilityScope    EligibilityScope? // must be chosen before READY
-  existingPolicy      ExistingSubscriptionPolicy @default(FUTURE_ONLY)
+  id                    String                     @id @default(cuid())
+  organizationId        String
+  name                  String
+  description           String?
+  status                RuleStatus                 @default(DRAFT)
+  priority              Int                        @default(100)
+  triggerType           RuleTriggerType            @default(SUBSCRIPTION_CYCLE)
+  programId             String
+  cycleNumber           Int // >= 2 (delivery 1 is the checkout order; DB check constraint + domain validation)
+  actionType            RuleActionType             @default(ADD_FULFILLMENT_MARKER)
+  fulfillmentMarkerId   String
+  eligibilityScope      EligibilityScope? // must be chosen before READY
+  existingPolicy        ExistingSubscriptionPolicy @default(FUTURE_ONLY)
   // V1 milestone uniqueness: "<organizationId>:<programId>:<cycleNumber>" while the rule is
   // DRAFT/READY/ACTIVE/DISABLED; NULL when ARCHIVED. One rule per programme milestone.
-  milestoneKey        String?                    @unique
-  activatedAt         DateTime?
-  lastTriggeredAt     DateTime?
-  createdById         String?
-  createdAt           DateTime                   @default(now())
-  updatedAt           DateTime                   @updatedAt
+  milestoneKey          String?                    @unique
+  // Phase 4b: rules are legacy; when migrated into a schedule milestone the link is kept here for audit
+  migratedToMilestoneId String?
+  activatedAt           DateTime?
+  lastTriggeredAt       DateTime?
+  createdById           String?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
 
   organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   program           SubscriptionProgram @relation(fields: [programId], references: [id], onDelete: Restrict)
@@ -597,15 +616,18 @@ model AutomationAction {
 
   // Idempotency: "<journeyId>:<targetCycle>:<fulfillmentMarkerId>" while status is live
   // (PLANNED / EXECUTING / ATTACHED / FULFILLED / FAILED); NULL when CANCELLED / SUPERSEDED.
-  liveKey String? @unique
+  liveKey                   String?           @unique
   // Scope-level owner of the milestone (Phase 4): PER_SUBSCRIPTION → "j:<journeyId>:<cycle>:<markerId>",
   // CUSTOMER_PROGRAM → "c:<customerId>:<programId>:<cycle>:<markerId>". Same lifetime as liveKey.
-  ownerKey         String?           @unique
-  eligibilityScope EligibilityScope?
-  plannerRunId     String?
-  lastPlannedAt    DateTime?
-  replanCount      Int               @default(0)
-  supersededById   String?
+  ownerKey                  String?           @unique
+  eligibilityScope          EligibilityScope?
+  // Phase 4b: the effective milestone this action was planned from (rules are legacy)
+  rewardScheduleMilestoneId String?
+  programId                 String?
+  plannerRunId              String?
+  lastPlannedAt             DateTime?
+  replanCount               Int               @default(0)
+  supersededById            String?
 
   targetChargeDate String? // YYYY-MM-DD (Recharge date-only value)
   targetChargeAt   DateTime? // local midnight of targetChargeDate in org timezone
@@ -619,32 +641,34 @@ model AutomationAction {
   externalAddressId  String?
   fulfilledByCycleId String?
 
-  dryRun        Boolean   @default(false)
+  dryRun         Boolean   @default(false)
   // DRY_RUN executor output (Phase 4): structured preview of what WOULD be sent, never sent
   lastDryRunAt   DateTime?
   dryRunJson     Json?
   wouldExecute   Boolean?
   blockingReason String?
-  attemptCount  Int       @default(0)
-  nextAttemptAt DateTime?
-  lastError     String?
-  lastErrorAt   DateTime?
-  cancelReason  String?
+  attemptCount   Int       @default(0)
+  nextAttemptAt  DateTime?
+  lastError      String?
+  lastErrorAt    DateTime?
+  cancelReason   String?
 
   triggeredByEventId String?
   createdById        String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  integration       Integration         @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  rule              AutomationRule?     @relation(fields: [ruleId], references: [id], onDelete: SetNull)
-  subscription      Subscription        @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
-  journey           SubscriptionJourney @relation(fields: [journeyId], references: [id], onDelete: Cascade)
-  fulfillmentMarker FulfillmentMarker   @relation(fields: [fulfillmentMarkerId], references: [id], onDelete: Restrict)
-  fulfilledByCycle  JourneyCycle?       @relation(fields: [fulfilledByCycleId], references: [id], onDelete: SetNull)
-  triggeredByEvent  IntegrationEvent?   @relation(fields: [triggeredByEventId], references: [id], onDelete: SetNull)
-  plannerRun        PlannerRun?         @relation(fields: [plannerRunId], references: [id], onDelete: SetNull)
+  organization      Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration       Integration              @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  rule              AutomationRule?          @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  subscription      Subscription             @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  journey           SubscriptionJourney      @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  fulfillmentMarker FulfillmentMarker        @relation(fields: [fulfillmentMarkerId], references: [id], onDelete: Restrict)
+  fulfilledByCycle  JourneyCycle?            @relation(fields: [fulfilledByCycleId], references: [id], onDelete: SetNull)
+  triggeredByEvent  IntegrationEvent?        @relation(fields: [triggeredByEventId], references: [id], onDelete: SetNull)
+  plannerRun        PlannerRun?              @relation(fields: [plannerRunId], references: [id], onDelete: SetNull)
+  milestone         RewardScheduleMilestone? @relation(fields: [rewardScheduleMilestoneId], references: [id], onDelete: SetNull)
+  program           SubscriptionProgram?     @relation(fields: [programId], references: [id], onDelete: SetNull)
   exceptions        Exception[]
 
   @@index([organizationId, status, targetChargeAt])
@@ -681,6 +705,101 @@ model PlannerRun {
   actions      AutomationAction[]
 
   @@index([organizationId, integrationId, startedAt])
+}
+
+// ═══════════════════════════ Reward configuration (Phase 4b) ═══════════════════════════
+
+/// What physically happens at a milestone ("Whisk", "Cup", "Spoon", "sample sachet"…). Organisation-owned;
+/// no inventory, pricing or stock — operator meaning and auditability only.
+model RewardItem {
+  id                     String   @id @default(cuid())
+  organizationId         String
+  name                   String
+  description            String?
+  operationalDescription String?
+  active                 Boolean  @default(true)
+  createdById            String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  organization Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  milestones   RewardScheduleMilestone[]
+  markers      FulfillmentMarker[]
+
+  @@unique([organizationId, name])
+}
+
+enum RewardScheduleStatus {
+  DRAFT
+  READY
+  ARCHIVED
+}
+
+/// Reusable milestone configuration shared by many programmes. Configuration only: programmes keep
+/// their own journeys and their own CUSTOMER_PROGRAM histories.
+model RewardSchedule {
+  id             String               @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  status         RewardScheduleStatus @default(DRAFT) // DRAFT → READY (usable by the dry-run planner) → ARCHIVED; no ACTIVE
+  createdById    String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  organization Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  milestones   RewardScheduleMilestone[]
+  programs     SubscriptionProgram[]
+
+  @@unique([organizationId, name])
+}
+
+enum MilestoneExecutionMode {
+  UPCOMING_RENEWAL // planned before a future charge by the renewal planner
+  INITIAL_CHECKOUT // part of the first order by construction; recorded, never planned by the renewal planner
+}
+
+model RewardScheduleMilestone {
+  id               String                 @id @default(cuid())
+  organizationId   String
+  scheduleId       String
+  cycleNumber      Int // delivery number the reward belongs to
+  rewardItemId     String
+  executionMode    MilestoneExecutionMode
+  eligibilityScope EligibilityScope // required — chosen explicitly when the milestone is created
+  active           Boolean                @default(true)
+  notes            String?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  schedule     RewardSchedule           @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  rewardItem   RewardItem               @relation(fields: [rewardItemId], references: [id], onDelete: Restrict)
+  bindings     ProgramMilestoneMarker[]
+  actions      AutomationAction[]
+
+  @@unique([scheduleId, cycleNumber])
+  @@index([organizationId])
+}
+
+/// "For this programme, when this schedule milestone occurs, use this external marker."
+model ProgramMilestoneMarker {
+  id                        String   @id @default(cuid())
+  organizationId            String
+  programId                 String
+  rewardScheduleMilestoneId String
+  fulfillmentMarkerId       String
+  active                    Boolean  @default(true)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  organization      Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  program           SubscriptionProgram     @relation(fields: [programId], references: [id], onDelete: Cascade)
+  milestone         RewardScheduleMilestone @relation(fields: [rewardScheduleMilestoneId], references: [id], onDelete: Cascade)
+  fulfillmentMarker FulfillmentMarker       @relation(fields: [fulfillmentMarkerId], references: [id], onDelete: Restrict)
+
+  @@unique([programId, rewardScheduleMilestoneId])
+  @@index([organizationId])
 }
 
 // ═══════════════════════════ Event inbox ═══════════════════════════
@@ -786,6 +905,8 @@ enum EntityType {
   ACTION
   EXCEPTION
   EVENT
+  REWARD_SCHEDULE
+  REWARD_ITEM
 }
 
 model ActivityLog {

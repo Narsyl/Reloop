@@ -35,3 +35,6 @@ export function validateRuleConfig(input: RuleConfigInput): RuleValidationIssue[
 export function milestoneKey(organizationId: string, programId: string, cycleNumber: number): string {
   return `${organizationId}:${programId}:${cycleNumber}`;
 }
+
+/** Phase 4b: rules are legacy; reward schedules are the configuration. */
+export const RULES_LEGACY_MESSAGE = "Rules are legacy configuration: milestones are now configured once on a reusable reward schedule (Rewards) and resolved per programme by the planner. Existing rules stay read-only for audit; archive or migrate them.";

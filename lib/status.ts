@@ -10,6 +10,8 @@
  *   neutral  pending / inactive
  */
 import type {
+  RewardScheduleStatus,
+  MilestoneExecutionMode,
   ActionStatus,
   AutomationMode,
   EligibilityScope,
@@ -112,3 +114,14 @@ export function dryRunState(a: { status: ActionStatus; lastDryRunAt: Date | null
   if (a.executeAfter && a.executeAfter.getTime() <= now.getTime()) return { label: "Due · awaiting dry run", tone: "info" };
   return { label: "Scheduled", tone: "neutral", description: "Dry run happens when the execute-after time is reached (or on demand)." };
 }
+
+export const rewardScheduleStatus: Record<RewardScheduleStatus, StatusMeta> = {
+  DRAFT: { label: "Draft", tone: "neutral", description: "Being configured. The planner ignores it." },
+  READY: { label: "Ready", tone: "info", description: "Configuration signed off: the dry-run planner plans its renewal milestones for every programme with a real marker bound." },
+  ARCHIVED: { label: "Archived", tone: "neutral", description: "Retired." },
+};
+
+export const executionModeLabel: Record<MilestoneExecutionMode, { label: string; description: string }> = {
+  UPCOMING_RENEWAL: { label: "Upcoming renewal", description: "Planned before a future charge by the renewal planner." },
+  INITIAL_CHECKOUT: { label: "Initial checkout", description: "Part of the first order by construction (starter product / checkout rule). Recorded here; never planned by the renewal planner." },
+};

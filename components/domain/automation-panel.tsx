@@ -67,7 +67,7 @@ export function RunPlannerButton({ integrationId, disabled, size = "sm", onDone 
       setLast(s);
       onDone?.(s);
       if (s.skippedReason === "AUTOMATION_OFF") toast.message("Planner skipped: automation is off for this integration");
-      else if (s.skippedReason === "NO_USABLE_RULES") toast.message(`Planner ran: no usable rules (${s.rulesSkipped.map((x) => `${x.name}: ${x.reason}`).join("; ") || "no Ready rules"})`);
+      else if (s.skippedReason === "NO_PLANNABLE_MILESTONES") toast.message(`Planner ran: nothing plannable yet (${s.milestonesSkipped.slice(0, 4).map((x) => `${x.programName} delivery ${x.cycleNumber}: ${x.reason}`).join("; ") || "no programme has a ready schedule"}${s.milestonesSkipped.length > 4 ? "; …" : ""})`);
       else toast.success(`Planner: ${s.planned} planned · ${s.replanned} replanned · ${s.confirmed} confirmed · ${s.cancelled} cancelled · ${s.superseded} superseded`);
       router.refresh();
     });

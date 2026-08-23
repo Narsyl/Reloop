@@ -52,16 +52,7 @@ export function RuleRow({ rule, canManage }: { rule: RuleRowData; canManage: boo
       </div>
       {canManage && (
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {(rule.status === "DRAFT" || rule.status === "DISABLED") && (
-            <ConfirmationDialog
-              trigger={<Button size="sm">Mark Ready</Button>}
-              title="Mark this rule Ready?"
-              impact="Ready means the configuration is complete and validated. It does NOT activate anything — no actions can be planned or executed until the automation engine is enabled for this organisation."
-              confirmLabel="Mark Ready"
-              onConfirm={change("READY")}
-              successMessage="Rule is Ready"
-            />
-          )}
+          {/* legacy: rules can no longer become Ready — configure a reward schedule instead */}
           {rule.status === "READY" && (
             <ConfirmationDialog
               trigger={<Button size="sm" variant="outline">Disable</Button>}

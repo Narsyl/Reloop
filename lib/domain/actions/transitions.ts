@@ -18,7 +18,14 @@ export type ActionCancelReason =
   | "MILESTONE_PASSED"
   | "NO_LONGER_QUALIFIES"
   | "AUTOMATION_OFF"
-  | "MANUAL";
+  | "MANUAL"
+  // Phase 4b (schedules)
+  | "RULE_RETIRED"
+  | "SCHEDULE_NOT_READY"
+  | "MILESTONE_INACTIVE"
+  | "MILESTONE_NOT_ASSIGNED"
+  | "BINDING_MISSING"
+  | "BINDING_CHANGED";
 
 export const CANCEL_REASON_LABEL: Record<ActionCancelReason, string> = {
   SUBSCRIPTION_NOT_ACTIVE: "Subscription no longer active",
@@ -33,6 +40,12 @@ export const CANCEL_REASON_LABEL: Record<ActionCancelReason, string> = {
   NO_LONGER_QUALIFIES: "No longer qualifies for the rule",
   AUTOMATION_OFF: "Automation switched off",
   MANUAL: "Cancelled by an operator",
+  RULE_RETIRED: "Planned from a legacy rule; reward schedules are the configuration now",
+  SCHEDULE_NOT_READY: "Reward schedule is not ready",
+  MILESTONE_INACTIVE: "Schedule milestone is inactive",
+  MILESTONE_NOT_ASSIGNED: "Programme no longer uses this schedule milestone",
+  BINDING_MISSING: "No marker bound for this programme milestone",
+  BINDING_CHANGED: "Programme marker binding changed (superseded)",
 };
 
 /** Structural writer type so both the plain TransactionClient and the tenant-extended client fit. */

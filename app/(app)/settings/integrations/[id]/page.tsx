@@ -138,7 +138,7 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
                         <TableCell className="tnum text-xs">{formatDateTime(r.startedAt, ctx.timezone)}</TableCell>
                         <TableCell className="text-xs">{r.trigger.toLowerCase()}</TableCell>
                         <TableCell className="text-xs">{r.automationMode}</TableCell>
-                        <TableCell className="text-xs">{r.status !== "COMPLETED" ? `${r.status}${r.error ? ` — ${r.error.slice(0, 80)}` : ""}` : c.skippedReason ? `skipped: ${String(c.skippedReason)}` : <span className="tnum">{c.subscriptionsEvaluated ?? 0} evaluated · {c.planned ?? 0} planned · {c.replanned ?? 0} replanned · {c.confirmed ?? 0} confirmed · {c.cancelled ?? 0} cancelled · {c.superseded ?? 0} superseded{Number(c.rulesSkipped) > 0 ? ` · ${c.rulesSkipped} rule(s) skipped` : ""}</span>}</TableCell>
+                        <TableCell className="text-xs">{r.status !== "COMPLETED" ? `${r.status}${r.error ? ` — ${r.error.slice(0, 80)}` : ""}` : c.skippedReason ? `skipped: ${String(c.skippedReason)}` : <span className="tnum">{c.subscriptionsEvaluated ?? 0} evaluated · {c.planned ?? 0} planned · {c.replanned ?? 0} replanned · {c.confirmed ?? 0} confirmed · {c.cancelled ?? 0} cancelled · {c.superseded ?? 0} superseded{Number(c.milestonesSkipped) > 0 ? ` · ${c.milestonesSkipped} milestone(s) not plannable` : ""}</span>}</TableCell>
                       </TableRow>
                     );
                   })}

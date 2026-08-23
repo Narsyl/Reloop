@@ -128,7 +128,7 @@ export default async function UpcomingPage({ searchParams }: PageProps<"/upcomin
                             <Link href={`/upcoming/${a.id}`} className="block font-medium hover:underline">{customerName(a.subscription.customer)}</Link>
                             <span className="block text-xs text-muted-foreground">{a.subscription.productTitleSnapshot} · <span className="font-mono">{a.subscription.externalSubscriptionId}</span></span>
                           </td>
-                          <td className="px-3 py-2 text-muted-foreground">{a.journey.program.name}<span className="block text-[11px]">{a.rule ? `${a.rule.name} · ${a.eligibilityScope ? eligibilityScopeLabel[a.eligibilityScope].label : "—"}` : "rule removed"}</span></td>
+                          <td className="px-3 py-2 text-muted-foreground">{a.journey.program.name}<span className="block text-[11px]">{a.milestone ? `${a.milestone.schedule.name} · delivery ${a.milestone.cycleNumber} → ${a.milestone.rewardItem.name} · ${eligibilityScopeLabel[a.milestone.eligibilityScope].label}` : a.rule ? `legacy rule: ${a.rule.name}` : "—"}</span></td>
                           <td className="tnum px-3 py-2 text-right">{a.targetCycle}</td>
                           <td className="px-3 py-2">{a.fulfillmentMarker.name}{a.fulfillmentMarker.placeholder ? <span className="ml-1 text-[11px] text-status-warning">placeholder</span> : null}<span className="block font-mono text-[11px] text-muted-foreground">{a.fulfillmentMarker.externalVariantId}</span></td>
                           <td className="tnum px-3 py-2 text-xs">{a.executeAfter ? formatDateTime(a.executeAfter, ctx.timezone) : "—"}{a.replanCount > 0 ? <span className="block text-[11px] text-muted-foreground">replanned ×{a.replanCount}</span> : null}</td>
@@ -160,7 +160,7 @@ export default async function UpcomingPage({ searchParams }: PageProps<"/upcomin
                       <td className="px-3 py-2 text-xs">{r.integration.displayName}</td>
                       <td className="px-3 py-2 text-xs">{r.trigger.toLowerCase()}</td>
                       <td className="px-3 py-2 text-xs">{r.automationMode}</td>
-                      <td className="px-3 py-2 text-xs">{r.status !== "COMPLETED" ? `${r.status}${r.error ? ` — ${r.error.slice(0, 80)}` : ""}` : c.skippedReason ? `skipped: ${String(c.skippedReason)}` : <span className="tnum">{c.subscriptionsEvaluated ?? 0} evaluated · {c.planned ?? 0} planned · {c.replanned ?? 0} replanned · {c.confirmed ?? 0} confirmed · {c.cancelled ?? 0} cancelled · {c.superseded ?? 0} superseded{Number(c.rulesSkipped) > 0 ? ` · ${c.rulesSkipped} rule(s) skipped` : ""}</span>}</td>
+                      <td className="px-3 py-2 text-xs">{r.status !== "COMPLETED" ? `${r.status}${r.error ? ` — ${r.error.slice(0, 80)}` : ""}` : c.skippedReason ? `skipped: ${String(c.skippedReason)}` : <span className="tnum">{c.subscriptionsEvaluated ?? 0} evaluated · {c.planned ?? 0} planned · {c.replanned ?? 0} replanned · {c.confirmed ?? 0} confirmed · {c.cancelled ?? 0} cancelled · {c.superseded ?? 0} superseded{Number(c.milestonesSkipped) > 0 ? ` · ${c.milestonesSkipped} milestone(s) not plannable` : ""}</span>}</td>
                     </tr>
                   );
                 })}

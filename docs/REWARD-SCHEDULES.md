@@ -1,6 +1,6 @@
-# Reward schedules — architecture amendment (proposal, 23 Aug 2026, awaiting sign-off)
+# Reward schedules — architecture amendment (approved and implemented, 23 Aug 2026)
 
-Status: **proposal only**. Nothing below is implemented. No mappings, rules, actions or Recharge writes were created.
+Status: **implemented** (see `docs/ARCHITECTURE.md` §25) with these approved amendments over the original proposal: no platform gift enum — organisation-owned **`RewardItem`** (name, description, operationalDescription, active); `RewardScheduleMilestone.rewardItemId` instead of giftType/giftLabel; `FulfillmentMarker.rewardItemId` + `operationalNote`; bindings reference the milestone explicitly (`ProgramMilestoneMarker(programId, rewardScheduleMilestoneId, fulfillmentMarkerId)`, unique per programme + milestone, resolver verifies schedule membership / store / reward match / not placeholder / active); reward is once per **programme** (no `CUSTOMER_SCHEDULE`); CUSTOMER_PROGRAM for all Schedule A and B milestones; Matcha and Soursop continuous product ids mapped; Butterfly Pea standalone product only; Hojicha documented only; `INITIAL_CHECKOUT` milestones recorded and never planned by the renewal planner (delivery-1 gifts are solved by a starter product / future safe subscription swap, never by post-order edits). The text below is the original proposal, kept for the reasoning.
 
 ## 0. Corrections this amendment encodes
 

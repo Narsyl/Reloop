@@ -9,8 +9,8 @@ import {
   CalendarClock,
   LayoutDashboard,
   Repeat,
+  Gift,
   Settings,
-  SlidersHorizontal,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,7 +26,7 @@ export function SidebarNav({ counts = {} }: { counts?: NavCounts }) {
     { href: "/", label: "Overview", icon: LayoutDashboard, exact: true },
     { href: "/subscriptions", label: "Subscriptions", icon: Repeat },
     { href: "/upcoming", label: "Upcoming", icon: CalendarClock },
-    { href: "/rules", label: "Rules", icon: SlidersHorizontal },
+    { href: "/rewards", label: "Rewards", icon: Gift },
     { href: "/products", label: "Products", icon: Boxes },
   ];
   const secondary: Item[] = [

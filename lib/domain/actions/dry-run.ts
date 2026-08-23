@@ -15,6 +15,7 @@ import { getRechargeConnectorForIntegration, IntegrationUnavailableError } from 
 import { evaluateJourneyEligibility, type IneligibilityReason } from "@/lib/domain/eligibility/evaluate";
 import { qualifyForRule, type DisqualificationReason } from "@/lib/domain/eligibility/qualify";
 import { loadProgramPopulation } from "@/lib/domain/eligibility/population";
+import { resolveProgramRewards, type MilestoneReadinessReason } from "@/lib/domain/rewards/resolver";
 import type { ConnectorOnetime, ConnectorSubscription } from "@/lib/integrations/types";
 import { isRechargeError } from "@/lib/integrations/recharge/errors";
 import { logger } from "@/lib/logging/logger";
@@ -26,6 +27,8 @@ export type DryRunBlockingReason =
   | "INTEGRATION_NOT_CONNECTED"
   | "AUTOMATION_OFF"
   | "RULE_NOT_READY"
+  | "MILESTONE_NOT_READY"
+  | "MILESTONE_NOT_ASSIGNED"
   | "MARKER_UNAVAILABLE"
   | "MARKER_PLACEHOLDER"
   | IneligibilityReason
@@ -49,7 +52,10 @@ export type DryRunResult = {
   subscription: { id: string; externalSubscriptionId: string; status: string; productTitle: string | null; nextChargeDate: string | null; externalAddressId: string };
   programme: { id: string; name: string };
   journey: { id: string; successfulCycles: number; cycles: { cycleNumber: number; externalOrderId: string; processedAt: string }[]; lifetimeDeliveries: number };
-  rule: { id: string; name: string; status: string; eligibilityScope: string | null; cycleNumber: number };
+  /** legacy (rule-planned actions only) */
+  rule: { id: string; name: string; status: string; eligibilityScope: string | null; cycleNumber: number } | null;
+  /** Phase 4b: the effective milestone this action was planned from */
+  milestone: { id: string; scheduleId: string; scheduleName: string; scheduleStatus: string; cycleNumber: number; executionMode: string; eligibilityScope: string; rewardItem: { id: string; name: string }; readiness: "READY" | MilestoneReadinessReason } | null;
   targetCycle: number;
   targetChargeDate: string | null;
   targetChargeAt: string | null;
@@ -88,11 +94,16 @@ export async function dryRunAction(ctx: Ctx, actionId: string, opts: { now?: Dat
       subscription: { include: { customer: { select: { firstName: true, lastName: true, email: true } } } },
       journey: { include: { program: { select: { id: true, name: true } }, cycles: { orderBy: { cycleNumber: "asc" }, select: { cycleNumber: true, externalOrderId: true, processedAt: true } } } },
       rule: true,
+      milestone: { include: { schedule: { select: { id: true, name: true, status: true } }, rewardItem: { select: { id: true, name: true } } } },
       fulfillmentMarker: true,
       integration: { select: { id: true, status: true, automationMode: true, displayName: true } },
     },
   });
   if (!a) throw new Error("Action not found in this organisation.");
+  // effective milestone (schedule-based planning) — rules are legacy
+  const programId = a.programId ?? a.journey.programId;
+  const rewardView = a.milestone ? await resolveProgramRewards(ctx, programId) : null;
+  const effective = rewardView?.milestones.find((m) => m.milestoneId === a.milestone?.id) ?? null;
 
   const customerName = [a.subscription.customer?.firstName, a.subscription.customer?.lastName].filter(Boolean).join(" ") || a.subscription.customer?.email || "Unknown customer";
   const blockers: { reason: DryRunBlockingReason; detail?: string }[] = [];
@@ -102,7 +113,10 @@ export async function dryRunAction(ctx: Ctx, actionId: string, opts: { now?: Dat
   if (a.status !== "PLANNED") block("ACTION_NOT_PLANNED", a.status);
   if (a.integration.status !== "CONNECTED") block("INTEGRATION_NOT_CONNECTED");
   if (a.integration.automationMode === "OFF") block("AUTOMATION_OFF");
-  if (!a.rule || (a.rule.status !== "READY" && a.rule.status !== "ACTIVE")) block("RULE_NOT_READY", a.rule?.status);
+  if (a.milestone) {
+    if (!effective) block("MILESTONE_NOT_ASSIGNED", rewardView?.schedule ? `programme now on "${rewardView.schedule.name}"` : "programme has no reward schedule");
+    else if (effective.readiness !== "READY") block("MILESTONE_NOT_READY", effective.readiness);
+  } else if (!a.rule || (a.rule.status !== "READY" && a.rule.status !== "ACTIVE")) block("RULE_NOT_READY", a.rule?.status ?? "legacy rule retired");
   if (!a.fulfillmentMarker.active) block("MARKER_UNAVAILABLE", "inactive");
   if (a.fulfillmentMarker.placeholder) block("MARKER_PLACEHOLDER");
 
@@ -120,9 +134,10 @@ export async function dryRunAction(ctx: Ctx, actionId: string, opts: { now?: Dat
     });
     if (!elig.eligible) for (const r of elig.reasons) block(r);
     if (row.latestJourneyId !== a.journeyId) block("NOT_LATEST_JOURNEY");
-    if (a.rule) {
+    const scopeSource = effective ? { status: "READY" as const, programId: effective.programId, cycleNumber: effective.cycleNumber, eligibilityScope: effective.eligibilityScope } : a.rule ? { status: a.rule.status, programId: a.rule.programId, cycleNumber: a.rule.cycleNumber, eligibilityScope: a.rule.eligibilityScope } : null;
+    if (scopeSource) {
       const qual = qualifyForRule({
-        rule: { status: a.rule.status, programId: a.rule.programId, cycleNumber: a.rule.cycleNumber, eligibilityScope: a.rule.eligibilityScope },
+        rule: scopeSource,
         journey: { programId: a.journey.programId, successfulCycles: a.journey.successfulCycles },
         customerLifetimeDeliveries: row.lifetimeDeliveries,
         allowReady: true,
@@ -185,7 +200,8 @@ export async function dryRunAction(ctx: Ctx, actionId: string, opts: { now?: Dat
     subscription: { id: a.subscription.id, externalSubscriptionId: a.subscription.externalSubscriptionId, status: a.subscription.status, productTitle: a.subscription.productTitleSnapshot, nextChargeDate: a.subscription.nextChargeDate, externalAddressId: a.subscription.externalAddressId },
     programme: { id: a.journey.program.id, name: a.journey.program.name },
     journey: { id: a.journey.id, successfulCycles: a.journey.successfulCycles, cycles: a.journey.cycles.map((c) => ({ cycleNumber: c.cycleNumber, externalOrderId: c.externalOrderId, processedAt: c.processedAt.toISOString() })), lifetimeDeliveries: lifetime },
-    rule: { id: a.rule?.id ?? "", name: a.rule?.name ?? "(rule removed)", status: a.rule?.status ?? "—", eligibilityScope: a.rule?.eligibilityScope ?? a.eligibilityScope ?? null, cycleNumber: a.rule?.cycleNumber ?? a.targetCycle },
+    rule: a.rule ? { id: a.rule.id, name: a.rule.name, status: a.rule.status, eligibilityScope: a.rule.eligibilityScope, cycleNumber: a.rule.cycleNumber } : null,
+    milestone: a.milestone ? { id: a.milestone.id, scheduleId: a.milestone.schedule.id, scheduleName: a.milestone.schedule.name, scheduleStatus: a.milestone.schedule.status, cycleNumber: a.milestone.cycleNumber, executionMode: a.milestone.executionMode, eligibilityScope: a.milestone.eligibilityScope, rewardItem: { id: a.milestone.rewardItem.id, name: a.milestone.rewardItem.name }, readiness: effective?.readiness ?? "MILESTONE_INACTIVE" } : null,
     targetCycle: a.targetCycle,
     targetChargeDate: a.targetChargeDate,
     targetChargeAt: a.targetChargeAt?.toISOString() ?? null,
@@ -212,7 +228,7 @@ export async function dryRunAction(ctx: Ctx, actionId: string, opts: { now?: Dat
       eventType: "ACTION_DRY_RUN",
       entityType: "ACTION",
       entityId: a.id,
-      summary: `Dry run for ${customerName} · ${a.journey.program.name} delivery ${a.targetCycle}: ${result.wouldExecute ? `would ${result.operation === "ADOPT_EXISTING_ONETIME" ? "adopt existing one-time" : "create one-time"} on ${a.targetChargeDate}` : `would NOT execute — ${result.blockingReason}`}${external.read ? "" : " (external read failed)"}`,
+      summary: `Dry run for ${customerName} · ${a.journey.program.name} delivery ${a.targetCycle}${a.milestone ? ` (${a.milestone.schedule.name} → ${a.milestone.rewardItem.name})` : ""}: ${result.wouldExecute ? `would ${result.operation === "ADOPT_EXISTING_ONETIME" ? "adopt existing one-time" : "create one-time"} on ${a.targetChargeDate}` : `would NOT execute — ${result.blockingReason}`}${external.read ? "" : " (external read failed)"}`,
       metadata: { wouldExecute: result.wouldExecute, blockingReason: result.blockingReason, timing: result.timing, externalRead: external.read },
     });
   }

@@ -179,16 +179,29 @@ async function seedDemoOrg(ownerId: string, viewerId: string) {
   const markerMM6 = await prisma.fulfillmentMarker.create({ data: mk("Morning Magic Cycle 6", "Six-month loyalty gift: ceramic cup.", mkMM6) });
   const markerCacao3 = await prisma.fulfillmentMarker.create({ data: mk("Cacao Cycle 3", "Third cacao delivery includes the wooden whisk.", mkCacao3) });
 
-  // ── rules ──
-  const ruleMM2 = await prisma.automationRule.create({
-    data: { ...O, name: "Morning Magic Cycle 2 Gift", status: "READY", eligibilityScope: "PER_SUBSCRIPTION", milestoneKey: `${org.id}:${progMM.id}:2`, programId: progMM.id, cycleNumber: 2, fulfillmentMarkerId: markerMM2.id, createdById: ownerId, existingPolicy: "INCLUDE_EXISTING" },
+  // ── reward items + schedules (Phase 4b: reusable milestone configuration; rules are legacy) ──
+  const whisk = await prisma.rewardItem.create({ data: { ...O, name: "Whisk", operationalDescription: "Include the electric whisk", createdById: ownerId } });
+  const cup = await prisma.rewardItem.create({ data: { ...O, name: "Cup", operationalDescription: "Include the ceramic cup", createdById: ownerId } });
+  await prisma.fulfillmentMarker.update({ where: { id: markerMM2.id }, data: { rewardItemId: whisk.id, operationalNote: "Include whisk" } });
+  await prisma.fulfillmentMarker.update({ where: { id: markerMM6.id }, data: { rewardItemId: cup.id, operationalNote: "Include cup" } });
+  await prisma.fulfillmentMarker.update({ where: { id: markerCacao3.id }, data: { rewardItemId: whisk.id, operationalNote: "Include whisk" } });
+  const schedMM = await prisma.rewardSchedule.create({ data: { ...O, name: "Morning Magic rewards", description: "Demo: whisk at delivery 2, cup at delivery 6.", status: "READY", createdById: ownerId } });
+  const msMM2 = await prisma.rewardScheduleMilestone.create({ data: { ...O, scheduleId: schedMM.id, cycleNumber: 2, rewardItemId: whisk.id, executionMode: "UPCOMING_RENEWAL", eligibilityScope: "PER_SUBSCRIPTION" } });
+  const msMM6 = await prisma.rewardScheduleMilestone.create({ data: { ...O, scheduleId: schedMM.id, cycleNumber: 6, rewardItemId: cup.id, executionMode: "UPCOMING_RENEWAL", eligibilityScope: "PER_SUBSCRIPTION", notes: "Awaiting stock confirmation." } });
+  const schedCacao = await prisma.rewardSchedule.create({ data: { ...O, name: "Cacao rewards", description: "Demo: whisk at delivery 3.", status: "READY", createdById: ownerId } });
+  const msCacao3 = await prisma.rewardScheduleMilestone.create({ data: { ...O, scheduleId: schedCacao.id, cycleNumber: 3, rewardItemId: whisk.id, executionMode: "UPCOMING_RENEWAL", eligibilityScope: "PER_SUBSCRIPTION" } });
+  await prisma.subscriptionProgram.update({ where: { id: progMM.id }, data: { rewardScheduleId: schedMM.id, rewardScheduleAssignedAt: now } });
+  await prisma.subscriptionProgram.update({ where: { id: progCacao.id }, data: { rewardScheduleId: schedCacao.id, rewardScheduleAssignedAt: now } });
+  await prisma.programMilestoneMarker.createMany({
+    data: [
+      { ...O, programId: progMM.id, rewardScheduleMilestoneId: msMM2.id, fulfillmentMarkerId: markerMM2.id },
+      { ...O, programId: progMM.id, rewardScheduleMilestoneId: msMM6.id, fulfillmentMarkerId: markerMM6.id },
+      { ...O, programId: progCacao.id, rewardScheduleMilestoneId: msCacao3.id, fulfillmentMarkerId: markerCacao3.id },
+    ],
   });
-  const ruleCacao3 = await prisma.automationRule.create({
-    data: { ...O, name: "Cacao Cycle 3 Whisk", status: "READY", eligibilityScope: "PER_SUBSCRIPTION", milestoneKey: `${org.id}:${progCacao.id}:3`, programId: progCacao.id, cycleNumber: 3, fulfillmentMarkerId: markerCacao3.id, createdById: ownerId },
-  });
-  await prisma.automationRule.create({
-    data: { ...O, name: "Morning Magic Six-Month Cup", status: "DRAFT", milestoneKey: `${org.id}:${progMM.id}:6`, programId: progMM.id, cycleNumber: 6, fulfillmentMarkerId: markerMM6.id, createdById: ownerId, description: "Awaiting stock confirmation before activation." },
-  });
+  // milestone ids used by the demo actions below
+  const ruleMM2 = { id: msMM2.id, programId: progMM.id };
+  const ruleCacao3 = { id: msCacao3.id, programId: progCacao.id };
 
   // ── customers ──
   const customers = [];
@@ -314,7 +327,9 @@ async function seedDemoOrg(ownerId: string, viewerId: string) {
         await prisma.automationAction.create({
           data: {
             ...I,
-            ruleId: ruleMM2.id,
+            ruleId: null,
+            rewardScheduleMilestoneId: ruleMM2.id,
+            programId: ruleMM2.programId,
             subscriptionId: sub.id,
             journeyId: prev.id,
             fulfillmentMarkerId: markerMM2.id,
@@ -360,7 +375,7 @@ async function seedDemoOrg(ownerId: string, viewerId: string) {
   // ── actions for the current journeys (rule matching: next cycle == rule cycle) ──
   const act = async (
     s: (typeof subs)[number],
-    ruleId: string,
+    milestoneId: string,
     markerId: string,
     status: ActionStatus,
     extra: Partial<{ executedAt: Date; externalObjectId: string; lastError: string; cancelReason: string; createdAt: Date }> = {},
@@ -370,7 +385,9 @@ async function seedDemoOrg(ownerId: string, viewerId: string) {
     return prisma.automationAction.create({
       data: {
         ...I,
-        ruleId,
+        ruleId: null,
+        rewardScheduleMilestoneId: milestoneId,
+        programId: s.programId ?? undefined,
         subscriptionId: s.id,
         journeyId: s.journeyId!,
         fulfillmentMarkerId: markerId,
@@ -421,7 +438,9 @@ async function seedDemoOrg(ownerId: string, viewerId: string) {
     await prisma.automationAction.create({
       data: {
         ...I,
-        ruleId: ruleMM2.id,
+        ruleId: null,
+        rewardScheduleMilestoneId: ruleMM2.id,
+        programId: ruleMM2.programId,
         subscriptionId: s.id,
         journeyId: s.journeyId,
         fulfillmentMarkerId: markerMM2.id,
@@ -454,7 +473,6 @@ async function seedDemoOrg(ownerId: string, viewerId: string) {
       integrationId: integration.id,
       subscriptionId: hassan.id,
       journeyId: hassan.journeyId,
-      ruleId: ruleMM2.id,
       actionId: actions.hassan,
       detectedAt: daysAgo(0.2),
       metadataJson: { httpStatus: 404, externalVariantId: mkMM2.vs[0].externalVariantId },
@@ -491,15 +509,15 @@ async function seedDemoOrg(ownerId: string, viewerId: string) {
   });
 
   // ── activity ──
-  const A = (eventType: string, entityType: "ORGANIZATION" | "INTEGRATION" | "RULE" | "SUBSCRIPTION" | "ACTION" | "EXCEPTION" | "JOURNEY", entityId: string, summary: string, createdAt: Date, actorType: "USER" | "SYSTEM" | "INTEGRATION" = "SYSTEM", actorId: string | null = null) =>
+  const A = (eventType: string, entityType: "ORGANIZATION" | "INTEGRATION" | "RULE" | "REWARD_SCHEDULE" | "SUBSCRIPTION" | "ACTION" | "EXCEPTION" | "JOURNEY", entityId: string, summary: string, createdAt: Date, actorType: "USER" | "SYSTEM" | "INTEGRATION" = "SYSTEM", actorId: string | null = null) =>
     prisma.activityLog.create({ data: { ...O, actorType, actorId, eventType, entityType, entityId, summary, createdAt } });
 
   await A("ORGANIZATION_CREATED", "ORGANIZATION", org.id, 'Organisation "Ancient Extracts Demo" created', daysAgo(45), "USER", ownerId);
   await A("INTEGRATION_CONNECTED", "INTEGRATION", integration.id, "Recharge connected — Ancient Extracts (Recharge). All required capabilities available.", daysAgo(44), "USER", ownerId);
   await A("SYNC_COMPLETED", "INTEGRATION", integration.id, "Initial import complete: 30 subscriptions (22 active, 8 inactive), 20 customers, 8 products. Historical cycles calculated.", daysAgo(44));
-  await A("RULE_CREATED", "RULE", ruleMM2.id, 'Rule "Morning Magic Cycle 2 Gift" created (disabled)', daysAgo(41), "USER", ownerId);
-  await A("RULE_ENABLED", "RULE", ruleMM2.id, 'Enabled rule "Morning Magic Cycle 2 Gift" (Morning Magic Powder, cycle 2 → Morning Magic Cycle 2)', daysAgo(40), "USER", ownerId);
-  await A("RULE_ENABLED", "RULE", ruleCacao3.id, 'Enabled rule "Cacao Cycle 3 Whisk" (Cacao, cycle 3 → Cacao Cycle 3)', daysAgo(25), "USER", ownerId);
+  await A("REWARD_SCHEDULE_CREATED", "REWARD_SCHEDULE", schedMM.id, 'Reward schedule "Morning Magic rewards" created (draft)', daysAgo(41), "USER", ownerId);
+  await A("REWARD_SCHEDULE_READY", "REWARD_SCHEDULE", schedMM.id, 'Reward schedule "Morning Magic rewards" marked ready (delivery 2 → Whisk, delivery 6 → Cup; used by Morning Magic Powder)', daysAgo(40), "USER", ownerId);
+  await A("REWARD_SCHEDULE_READY", "REWARD_SCHEDULE", schedCacao.id, 'Reward schedule "Cacao rewards" marked ready (delivery 3 → Whisk; used by Cacao)', daysAgo(25), "USER", ownerId);
   await A("CYCLE_COMPLETED", "JOURNEY", sarah.journeyId!, "Sarah Johnson · Morning Magic: delivery 1 processed (order recurring)", daysAgo(28));
   await A("MARKER_QUEUED", "ACTION", actions.sarah, "Planned 'Morning Magic Cycle 2' for Sarah Johnson · Morning Magic, delivery 2 on " + sarah.nextDate, daysAgo(28));
   await A("MARKER_MOVED", "ACTION", actions.sarah, "Moved queued marker for Sarah Johnson · Morning Magic to " + sarah.nextDate + " after the subscription was rescheduled", daysAgo(0.4));

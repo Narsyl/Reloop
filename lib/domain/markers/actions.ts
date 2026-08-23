@@ -31,6 +31,9 @@ const markerSchema = z.object({
   source: z.enum(["MANUAL", "CATALOGUE", "DISCOVERED_ONETIME"]).default("MANUAL"),
   /** configuration-only stand-in; never executable (READY rules and the planner refuse it) */
   placeholder: z.boolean().optional().default(false),
+  /** organisation-owned reward item this marker represents ("Cup"); required before binding to a milestone */
+  rewardItemId: z.string().optional().or(z.literal("")),
+  operationalNote: z.string().trim().max(200).optional().or(z.literal("")),
 });
 
 async function admin() {
@@ -86,7 +89,7 @@ export async function saveMarker(input: unknown): Promise<ActionResult<{ id: str
         if (identityChanged && existing._count.actions > 0) throw new Error("MARKER_HAS_ATTACHED_ACTIONS");
         const m = await tx.fulfillmentMarker.update({
           where: { id: d.id },
-          data: { name: d.name, description: d.description || null, variantId: variant.id, externalVariantId, externalProductId: productIdParsed.id, title: d.title, sku: d.sku || null, source: d.source, placeholder: d.placeholder },
+          data: { name: d.name, description: d.description || null, variantId: variant.id, externalVariantId, externalProductId: productIdParsed.id, title: d.title, sku: d.sku || null, source: d.source, placeholder: d.placeholder, rewardItemId: d.rewardItemId || null, operationalNote: d.operationalNote || null },
           select: { id: true, name: true },
         });
         // an identity change orphans the old internal marker catalogue rows — remove them when nothing references them
@@ -101,7 +104,7 @@ export async function saveMarker(input: unknown): Promise<ActionResult<{ id: str
         return { ...m, created: false, previous: { name: existing.name, externalVariantId: existing.externalVariantId, externalProductId: existing.externalProductId, title: existing.title, sku: existing.sku, placeholder: existing.placeholder }, identityChanged };
       }
       const m = await tx.fulfillmentMarker.create({
-        data: { organizationId: ctx.organizationId, integrationId: integration.id, name: d.name, description: d.description || null, variantId: variant.id, externalVariantId, externalProductId: productIdParsed.id, title: d.title, sku: d.sku || null, source: d.source, placeholder: d.placeholder },
+        data: { organizationId: ctx.organizationId, integrationId: integration.id, name: d.name, description: d.description || null, variantId: variant.id, externalVariantId, externalProductId: productIdParsed.id, title: d.title, sku: d.sku || null, source: d.source, placeholder: d.placeholder, rewardItemId: d.rewardItemId || null, operationalNote: d.operationalNote || null },
         select: { id: true, name: true },
       });
       return { ...m, created: true, previous: null, identityChanged: false };

@@ -63,6 +63,10 @@ export function qualifyForRule(input: QualificationInput): QualificationResult {
     // that equals the rule cycle. If they are already beyond it, the reward is not due again.
     if (lifetime + 1 > rule.cycleNumber) return { qualifies: false, reason: "CUSTOMER_ALREADY_REACHED_MILESTONE", timing: "NEVER" };
     if (lifetime + 1 < rule.cycleNumber) return { qualifies: false, reason: "NOT_NEXT_CYCLE", timing: "FUTURE" };
+    // A subscription's FIRST shipment is never a renewal: the renewal planner only attaches milestones
+    // to a journey that has completed at least one delivery (delivery 1 is INITIAL_CHECKOUT territory).
+    // This also makes the customer milestone land deterministically on the journey actually at a renewal.
+    if (journey.successfulCycles < 1) return { qualifies: false, reason: "NOT_NEXT_CYCLE", timing: "FUTURE" };
   } else if (next < rule.cycleNumber) {
     return { qualifies: false, reason: "NOT_NEXT_CYCLE", timing: "FUTURE" };
   }

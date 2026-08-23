@@ -26,7 +26,7 @@ export const planAutomationActions = inngest.createFunction(
     const summary = await step.run("plan", async () => {
       const s = await planActionsForIntegration({ organizationId }, integrationId, { trigger });
       // keep the step result small (decisions can be hundreds of rows)
-      return { plannerRunId: s.plannerRunId, skippedReason: s.skippedReason ?? null, planned: s.planned, replanned: s.replanned, confirmed: s.confirmed, cancelled: s.cancelled, superseded: s.superseded, held: s.held, rulesSkipped: s.rulesSkipped };
+      return { plannerRunId: s.plannerRunId, skippedReason: s.skippedReason ?? null, planned: s.planned, replanned: s.replanned, confirmed: s.confirmed, cancelled: s.cancelled, superseded: s.superseded, held: s.held, milestonesSkipped: s.milestonesSkipped.length };
     });
     logger.info("planner.job", { integrationId, ...summary });
     return summary;

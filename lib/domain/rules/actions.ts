@@ -6,7 +6,7 @@ import { Prisma, type RuleStatus } from "@prisma/client";
 import { dbFor } from "@/lib/db/tenant";
 import { ForbiddenError, requireRole } from "@/lib/auth/tenancy";
 import { logActivity } from "@/lib/domain/activity/log";
-import { CYCLE_ONE_EXPLANATION, MIN_RULE_CYCLE, milestoneKey, validateRuleConfig } from "@/lib/domain/rules/validation";
+import { CYCLE_ONE_EXPLANATION, MIN_RULE_CYCLE, RULES_LEGACY_MESSAGE, milestoneKey } from "@/lib/domain/rules/validation";
 import { analyzeMilestoneImpact, type ImpactSummary } from "@/lib/domain/rules/impact";
 import type { ActionResult } from "@/lib/domain/organizations/actions";
 
@@ -48,6 +48,15 @@ function friendly(e: unknown): string | null {
 
 /** Create or update a rule as DRAFT (or keep READY/DISABLED if still valid). */
 export async function saveRule(input: unknown): Promise<ActionResult<{ id: string; status: RuleStatus }>> {
+  const ctx = await admin();
+  if (!ctx) return { ok: false, error: "You need the Admin or Owner role to manage rules." };
+  void input;
+  return { ok: false, error: RULES_LEGACY_MESSAGE };
+}
+
+// Kept for reference while the legacy table exists; unreachable from the UI.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function saveRuleLegacy(input: unknown): Promise<ActionResult<{ id: string; status: RuleStatus }>> {
   const ctx = await admin();
   if (!ctx) return { ok: false, error: "You need the Admin or Owner role to manage rules." };
   const parsed = ruleInputSchema.safeParse(input);
@@ -107,8 +116,8 @@ export async function setRuleStatus(input: unknown): Promise<ActionResult<{ stat
   const parsed = statusSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { id, status } = parsed.data;
-  if (status === "ACTIVE") {
-    return { ok: false, error: "Activation is not available in this phase: the action engine runs in dry-run only. Ready rules are planned and dry-run against real data; nothing is attached in the subscription platform until the live phase is approved." };
+  if (status === "ACTIVE" || status === "READY") {
+    return { ok: false, error: RULES_LEGACY_MESSAGE };
   }
   const db = dbFor(ctx);
   const rule = await db.automationRule.findUnique({ where: { id }, include: { program: { select: { name: true, active: true } }, fulfillmentMarker: { select: { name: true, active: true, placeholder: true } } } });
@@ -116,13 +125,7 @@ export async function setRuleStatus(input: unknown): Promise<ActionResult<{ stat
   if (rule.status === status) return { ok: true, data: { status } };
   if (rule.status === "ARCHIVED") return { ok: false, error: "Archived rules cannot change state." };
 
-  if (status === "READY") {
-    const issues = validateRuleConfig({ name: rule.name, programId: rule.programId, cycleNumber: rule.cycleNumber, fulfillmentMarkerId: rule.fulfillmentMarkerId, eligibilityScope: rule.eligibilityScope }).filter((i) => i.blocksReady);
-    if (!rule.program.active) issues.push({ field: "programId", code: "PROGRAM_INACTIVE", message: "The programme is inactive.", blocksReady: true });
-    if (!rule.fulfillmentMarker.active) issues.push({ field: "fulfillmentMarkerId", code: "MARKER_INACTIVE", message: `The marker "${rule.fulfillmentMarker.name}" is inactive.`, blocksReady: true });
-    if (rule.fulfillmentMarker.placeholder) issues.push({ field: "fulfillmentMarkerId", code: "MARKER_PLACEHOLDER", message: `The marker "${rule.fulfillmentMarker.name}" is a placeholder and can never be executed — replace it with the real £0 fulfilment item before marking the rule Ready.`, blocksReady: true });
-    if (issues.length) return { ok: false, error: issues.map((i) => i.message).join(" ") };
-  }
+  // READY is unreachable for legacy rules (refused above); only DISABLED / ARCHIVED remain.
 
   await db.automationRule.update({
     where: { id },
