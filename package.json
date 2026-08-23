@@ -20,7 +20,8 @@
     "db:status": "node scripts/db/safe-prisma.mjs status",
     "db:diff": "node scripts/db/safe-prisma.mjs diff",
     "db:diff:live": "node scripts/db/safe-prisma.mjs diff:live",
-    "db:migrate:dev": "node scripts/db/safe-prisma.mjs migrate:dev"
+    "db:migrate:dev": "node scripts/db/safe-prisma.mjs migrate:dev",
+    "db:integrity": "dotenv -e .env.local -- tsx -r ./scripts/db/_cli-preload.cjs scripts/db/integrity-check.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
