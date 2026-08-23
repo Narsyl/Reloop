@@ -1,12 +1,20 @@
 /**
  * Recharge webhook utilities (Phase 5).
  *
- * Recharge signs webhook deliveries with HMAC-SHA256 of the raw request body
- * using the API client secret, sent as the `X-Recharge-Hmac-Sha256` header.
- * Registration is API-managed: POST/GET/DELETE /webhooks (scoped to this token's
- * API client) — the only non-GET Recharge surface on the platform.
+ * Signature: despite the header name `X-Recharge-Hmac-Sha256`, Recharge's documented validation
+ * is NOT a keyed HMAC. Per the official docs (docs.getrecharge.com/docs/webhooks-overview,
+ * verified 23 Aug 2026) it is a PLAIN SHA-256 digest of the API client secret concatenated with
+ * the EXACT raw request body — secret first — hex-encoded:
+ *
+ *     expected = sha256( utf8(client_secret) || raw_body_bytes ).hexdigest()
+ *
+ * The docs warn that "validation will fail even if one space is lost", so the raw bytes must be
+ * hashed untouched (no JSON re-serialisation, no whitespace normalisation) and the secret must come
+ * BEFORE the body ("adding client_secret after req_body … will result in fake false").
+ * Registration is API-managed: POST/GET/DELETE /webhooks (scoped to this token's API client) —
+ * the only non-GET Recharge surface on the platform.
  */
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import type { RechargeClient } from "./client";
 
@@ -30,25 +38,24 @@ export const RECHARGE_WEBHOOK_TOPICS = [
 ] as const;
 export type RechargeWebhookTopic = (typeof RECHARGE_WEBHOOK_TOPICS)[number];
 
-export function computeRechargeSignature(rawBody: string | Buffer, clientSecret: string, encoding: "hex" | "base64" = "hex"): string {
-  return createHmac("sha256", clientSecret).update(rawBody).digest(encoding);
+/** Recharge's documented digest: sha256(client_secret || raw_body), hex. Secret FIRST; body untouched. */
+export function computeRechargeSignature(rawBody: string | Buffer, clientSecret: string): string {
+  return createHash("sha256").update(clientSecret, "utf8").update(rawBody).digest("hex");
 }
 
 /**
- * Constant-time verification. Accepts hex (Recharge's documented format) and
- * base64 digests so a format change upstream does not silently reject everything.
+ * Constant-time verification of `X-Recharge-Hmac-Sha256` against the documented hex digest.
+ * Exactly the documented encoding — no alternate representations are accepted (a standard keyed
+ * HMAC-SHA256, or a base64 digest, is rejected).
  */
 export function verifyRechargeWebhookSignature(params: { rawBody: string | Buffer; signature: string | null | undefined; clientSecret: string | null | undefined }): boolean {
   const { rawBody, signature, clientSecret } = params;
   if (!signature || !clientSecret) return false;
-  const provided = signature.trim();
-  for (const enc of ["hex", "base64"] as const) {
-    const expected = computeRechargeSignature(rawBody, clientSecret, enc);
-    const a = Buffer.from(expected);
-    const b = Buffer.from(provided);
-    if (a.length === b.length && timingSafeEqual(a, b)) return true;
-  }
-  return false;
+  const provided = signature.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(provided)) return false;
+  const a = Buffer.from(computeRechargeSignature(rawBody, clientSecret));
+  const b = Buffer.from(provided);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 export const RECHARGE_TOPIC_HEADER = "x-recharge-topic";
