@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import relooplogo from "@/app/relooplogo-trimmed.png";
 import { signIn } from "@/lib/auth/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,11 +32,11 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-      <div className="mb-6 space-y-1">
-        <h1 className="text-lg font-semibold tracking-tight">Sign in</h1>
-        <p className="text-sm text-muted-foreground">Welcome back. Sign in to your workspace.</p>
+    <div className="rounded-lg bg-card px-8 py-9 shadow-[0_15px_35px_rgba(60,66,87,0.08),0_5px_15px_rgba(0,0,0,0.10)] ring-1 ring-black/5 sm:px-11 sm:py-11 dark:ring-border">
+      <div className="mb-7 flex justify-center">
+        <Image src={relooplogo} alt="Reloop" className="h-9 w-auto object-contain" priority />
       </div>
+      <h1 className="mb-6 text-center text-xl font-semibold tracking-tight">Sign in to your account</h1>
       <form onSubmit={onSubmit} className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="email">Email</Label>
@@ -53,10 +55,11 @@ export default function LoginPage() {
           {loading ? "Signing in…" : "Sign in"}
         </Button>
       </form>
-      <p className="mt-5 text-center text-sm text-muted-foreground">
-        No account yet?{" "}
+      <hr className="my-6 border-border" />
+      <p className="text-center text-sm text-muted-foreground">
+        New to Reloop?{" "}
         <Link href="/signup" className="font-medium text-primary underline-offset-4 hover:underline">
-          Create one
+          Create account
         </Link>
       </p>
     </div>
