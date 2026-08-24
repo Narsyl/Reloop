@@ -271,6 +271,8 @@ async function promoteBindingCompatibility(ctx: Ctx, input: { actionRewardItemId
   const db = dbFor(ctx);
   const binding = await db.rewardItemExternalBinding.findFirst({ where: { rewardItemId: input.actionRewardItemId, externalVariantId: input.variantId, integration: { pairedIntegrationId: input.rechargeIntegrationId } }, include: { rewardItem: { select: { name: true } } } });
   if (!binding) return false;
+  // First verification stands: an already-VERIFIED binding keeps its original evidence untouched.
+  if (binding.rechargeCompatibility === "VERIFIED") return false;
   const verification = ((binding.verificationJson as Record<string, unknown> | null) ?? {}) as Record<string, unknown>;
   await db.rewardItemExternalBinding.update({
     where: { id: binding.id },

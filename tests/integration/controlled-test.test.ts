@@ -394,6 +394,36 @@ describe("rollback (explicit, narrowly scoped)", () => {
   });
 });
 
+describe("verification evidence is immutable", () => {
+  it("the FIRST verified write promotes with evidence; later verified writes for the same reward never re-promote or overwrite it", async () => {
+    // the rollback test above legitimately demoted Cup (its evidence pointed at the rolled-back one-time)
+    expect((await prisma.rewardItemExternalBinding.findUniqueOrThrow({ where: { id: cupBindingId } })).rechargeCompatibility).toBe("UNVERIFIED");
+    // FIRST verified attach after the demotion → promotes and records evidence
+    await seedSub("CT-7", { next: "2026-09-22" });
+    await plan();
+    const a7 = await action("CT-7");
+    ok(await armControlledTest(ctx, { actionId: a7.id }));
+    const r7 = await executeControlledTest(ctx, a7.id, { connector: fake, now: NOW });
+    expect(r7.outcome).toBe("ATTACHED");
+    expect(r7.compatibilityPromoted).toBe(true);
+    const promoted = await prisma.rewardItemExternalBinding.findUniqueOrThrow({ where: { id: cupBindingId } });
+    const evidence = (promoted.verificationJson as { rechargeVerification?: { externalOnetimeId?: string; actionId?: string } }).rechargeVerification;
+    expect(promoted.rechargeCompatibility).toBe("VERIFIED");
+    expect(evidence?.actionId).toBe(a7.id);
+    // SECOND verified attach for the same reward → no re-promotion, evidence untouched
+    await seedSub("CT-8", { next: "2026-09-24" });
+    await plan();
+    const a8 = await action("CT-8");
+    ok(await armControlledTest(ctx, { actionId: a8.id }));
+    const r8 = await executeControlledTest(ctx, a8.id, { connector: fake, now: NOW });
+    expect(r8.outcome).toBe("ATTACHED");
+    expect(r8.compatibilityPromoted).toBe(false);
+    const final = await prisma.rewardItemExternalBinding.findUniqueOrThrow({ where: { id: cupBindingId } });
+    expect(final.rechargeCompatibility).toBe("VERIFIED");
+    expect((final.verificationJson as { rechargeVerification?: unknown }).rechargeVerification).toEqual(evidence);
+  }, 120_000);
+});
+
 describe("post-delivery progression — the Alexandria path (d2 ATTACHED → delivery 2 arrives → d3 planned)", () => {
   it("records delivery 2, keeps the ATTACHED d2 action (no duplicate, no cancel), and plans the delivery-3 Spoon action", async () => {
     // extend the schedule: d3 → Spoon, bound to its own variant (compatibility of Spoon stays untried)
