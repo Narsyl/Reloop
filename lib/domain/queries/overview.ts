@@ -42,18 +42,26 @@ export async function getSubscriptionTrends(ctx: Ctx, days: 7 | 30, now = new Da
       select: { productTitleSnapshot: true, latestJourney: { select: { program: { select: { name: true } } } } },
     }),
   ]);
-  // One line per product family. Subscriptions in a programme group under the
-  // programme name, which is where families like Shilajit or Morning Magic are
-  // already defined. Anything outside a programme groups by its product title
-  // with trailing size suffixes such as "(240g)" stripped.
-  const merged = new Map<string, { title: string; count: number }>();
+  // One line per product family (display only). Programme membership decides the
+  // family where it exists; otherwise the family is derived from the product
+  // title by dropping sizes, dash qualifiers and generic commerce words, so
+  // "Turkey Tail Mushroom Extract - For Pets" lands in "Turkey Tail" and every
+  // Lion's Mane variant lands together whether or not it is mapped yet.
+  const merged = new Map<string, { title: string; count: number; fromProgram: boolean }>();
   for (const s of byProduct) {
-    let base = s.latestJourney?.program.name ?? s.productTitleSnapshot.trim();
-    while (/\s*\([^)]*\)$/.test(base)) base = base.replace(/\s*\([^)]*\)$/, "").trim();
-    const key = base.toLowerCase();
+    const program = s.latestJourney?.program.name ?? null;
+    const source = program ?? s.productTitleSnapshot;
+    const key = productFamilyKey(source);
     const row = merged.get(key);
-    if (row) row.count += 1;
-    else merged.set(key, { title: base, count: 1 });
+    if (row) {
+      row.count += 1;
+      if (program && !row.fromProgram) {
+        row.title = program;
+        row.fromProgram = true;
+      }
+    } else {
+      merged.set(key, { title: program ?? titleCase(key), count: 1, fromProgram: !!program });
+    }
   }
   return {
     days,
@@ -117,4 +125,26 @@ export async function getOverview(ctx: Ctx, now = new Date()) {
     nextGifts,
     recentActivity,
   };
+}
+
+/** Words that never distinguish one product family from another. */
+const GENERIC_TITLE_WORDS = new Set([
+  "mushroom", "mushrooms", "extract", "powder", "coffee", "resin", "chunks", "chunk",
+  "k-cups", "kcups", "cups", "ceremonial", "grade", "pure", "himalayan", "organic",
+  "decaf", "gold", "latte", "tea", "for", "pets", "the", "and", "with",
+]);
+
+/** Normalises a product or programme name to its family key, e.g. "Turkey Tail". */
+function productFamilyKey(name: string): string {
+  const cleaned = name
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .split(" - ")[0]
+    .replace(/['\u2019]/g, "");
+  const words = cleaned.split(/\s+/).filter((w) => w && !GENERIC_TITLE_WORDS.has(w));
+  return words.join(" ") || cleaned.trim() || name.toLowerCase();
+}
+
+function titleCase(key: string): string {
+  return key.replace(/\b[a-z]/g, (c) => c.toUpperCase());
 }
