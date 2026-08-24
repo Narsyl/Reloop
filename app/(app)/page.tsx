@@ -58,7 +58,7 @@ export default async function OverviewPage() {
       <PageHeader title="Overview" description={healthSentence} />
 
       {attentionCount > 0 ? (
-        <section className="mb-6 overflow-hidden rounded-xl border border-status-danger/40 bg-card">
+        <section className="overflow-hidden rounded-xl border border-status-danger/40 bg-card">
           <header className="flex items-center justify-between border-b border-status-danger/30 px-4 py-2">
             <h2 className="text-[11.5px] font-semibold tracking-wide text-status-danger uppercase">Needs attention</h2>
             <span className="tnum text-[11.5px] text-muted-foreground">{attentionCount}</span>
@@ -103,13 +103,13 @@ export default async function OverviewPage() {
         </section>
       ) : null}
 
-      <MetricGrid>
+      <MetricGrid columns={3}>
         <Metric label="Gifts in the next 7 days" value={formatNumber(metrics.giftsNext7)} hint="Scheduled or already added" href="/upcoming" />
         <Metric label="Added in the last 30 days" value={formatNumber(metrics.added30)} hint="Gifts placed on renewals" href="/upcoming?view=added" />
         <Metric label="Active subscriptions" value={formatNumber(metrics.activeSubscriptions)} hint="Imported from Recharge" href="/subscriptions?status=ACTIVE" />
       </MetricGrid>
 
-      <section className="mt-6 space-y-3">
+      <section className="space-y-3">
         <SectionHeader
           title="Next gifts"
           actions={
@@ -131,7 +131,7 @@ export default async function OverviewPage() {
         )}
       </section>
 
-      <section className="mt-6 space-y-3">
+      <section className="space-y-3">
         <SectionHeader
           title="Recent activity"
           actions={

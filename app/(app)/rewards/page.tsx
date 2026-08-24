@@ -67,6 +67,7 @@ export default async function RewardsPage() {
                 ) : (
                   <JourneyStrip
                     stops={s.milestones.map((m) => ({
+                      num: m.cycleNumber,
                       label: `${ordinal(m.cycleNumber)} delivery`,
                       sub: m.executionMode === "INITIAL_CHECKOUT" ? `${m.rewardItem.name} at checkout` : m.rewardItem.name,
                       state: "future" as const,
@@ -81,7 +82,7 @@ export default async function RewardsPage() {
         {archived ? <p className="text-xs text-muted-foreground">{archived === 1 ? "One archived journey is" : `${archived} archived journeys are`} kept for the audit record.</p> : null}
       </section>
 
-      <section className="mt-8 space-y-3">
+      <section className="space-y-3">
         <SectionHeader
           title="Gift products"
           description={
@@ -94,7 +95,7 @@ export default async function RewardsPage() {
         <RewardBindingsTable rows={bindings.rows} canManage={canManage} />
       </section>
 
-      <section className="mt-8 space-y-3">
+      <section className="space-y-3">
         <SectionHeader
           title="Gift items"
           description="The gifts themselves. Create them once and reuse them across journeys."

@@ -13,6 +13,7 @@ import { ShopifyCapabilityPanel } from "@/components/domain/shopify-capability-p
 import type { ShopifyCapabilityReport } from "@/lib/integrations/shopify";
 import { IntegrationActions } from "@/components/domain/integration-actions";
 import { SyncStatus, type SyncStatusData } from "@/components/domain/sync-status";
+import { TechnicalDetails } from "@/components/data/technical-details";
 import type { CapabilityMap } from "@/lib/integrations/types";
 
 export const metadata = { title: "Integrations" };
@@ -33,7 +34,7 @@ export default async function IntegrationsPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <SectionHeader title="Subscription platforms" description="Connect the platform that bills your subscribers. Imports are read-only; nothing is written to the platform until a rule is activated." />
+        <SectionHeader title="Recharge" description="The platform that bills your subscribers. Connecting imports your data and only reads." />
         <div className="flex flex-wrap items-center gap-2">
           <ConnectRechargeDialog disabled={!canManage} />
           <ConnectShopifyDialog rechargeIntegrations={rechargeOptions} disabled={!canManage || rechargeOptions.length === 0} />
@@ -46,7 +47,7 @@ export default async function IntegrationsPage() {
           <div className="space-y-1 text-sm">
             <div className="font-semibold">No platform connected yet</div>
             <p className="text-muted-foreground">
-              Connect Recharge with a least-privilege API token: Customers, Products, Orders and Store information (view) plus Subscriptions (view + manage). Premium Recharge features (Events API, Credits, Storefront sessions) are not required.
+              Connect Recharge with an API token that can view Customers, Products, Orders and Store information, and view and manage Subscriptions. No premium Recharge features are needed.
             </p>
           </div>
         </div>
@@ -73,7 +74,7 @@ export default async function IntegrationsPage() {
                     <StatusBadge status={automationMode[i.automationMode]} />
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {i.externalStoreId} · {i.lastSuccessfulSyncAt ? `last synced ${formatRelative(i.lastSuccessfulSyncAt)}` : "not synced yet"} · {pluralize(i._count.subscriptions, "subscription")}, {pluralize(i._count.products, "product")}, {pluralize(i._count.customers, "customer")}
+                    {i.lastSuccessfulSyncAt ? `Synced ${formatRelative(i.lastSuccessfulSyncAt)}. ` : "Not synced yet. "}{pluralize(i._count.subscriptions, "subscription")}, {pluralize(i._count.products, "product")}, {pluralize(i._count.customers, "customer")}
                   </div>
                   <div className={`text-xs font-medium ${requiredOk ? "text-status-success" : "text-status-danger"}`}>
                     {requiredOk ? "Everything Reloop needs is available." : "Some required capabilities are missing."}
@@ -87,8 +88,8 @@ export default async function IntegrationsPage() {
             {syncData && (
               <div className="border-t border-border px-5 py-4">
                 <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{syncData.kind === "INITIAL" ? "Initial import" : syncData.kind === "INCREMENTAL" ? "Sync" : "Journey recalculation"} · {syncData.status.toLowerCase()}{sync?.startedAt ? ` · started ${formatRelative(sync.startedAt)}` : ""}</span>
-                  <Link href={`/settings/integrations/${i.id}`} className="font-medium text-primary hover:underline">Details & history</Link>
+                  <span>{syncData.kind === "INITIAL" ? "Initial import" : syncData.kind === "INCREMENTAL" ? "Sync" : "Journey recalculation"}, {syncData.status.toLowerCase()}{sync?.startedAt ? `, started ${formatRelative(sync.startedAt)}` : ""}</span>
+                  <Link href={`/settings/integrations/${i.id}`} className="font-medium text-primary hover:underline">View details</Link>
                 </div>
                 <SyncStatus sync={syncData} compact />
               </div>
@@ -98,10 +99,10 @@ export default async function IntegrationsPage() {
       })}
 
       <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
-        <SectionHeader title="Catalogue (Shopify)" description="Shopify is used only to discover, create and verify the fulfilment-marker products that one-times will reference. It never reads orders or customers and never edits orders; Recharge stays the subscription authority." />
+        <SectionHeader title="Shopify" description="The catalogue your gifts link to. Reloop only reads products here and never touches orders or customers." />
       </div>
       {shopify.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No Shopify store connected. Connect one with a custom app limited to products + publications to generate the fulfilment markers.</p>
+        <p className="text-sm text-muted-foreground">No Shopify store connected yet. Connect one so each gift can link to the product that ships.</p>
       ) : null}
       {shopify.map((i) => {
         const report = (i.capabilitiesJson as ShopifyCapabilityReport | null) ?? null;
@@ -127,7 +128,13 @@ export default async function IntegrationsPage() {
                 {canManage ? <ConnectShopifyDialog rechargeIntegrations={rechargeOptions} existing={{ shopDomain: settings?.shopDomain ?? i.externalStoreId, pairedIntegrationId: i.pairedIntegrationId }} /> : null}
               </div>
             </div>
-            {report ? <div className="border-t border-border px-5 py-4"><ShopifyCapabilityPanel report={report} /></div> : null}
+            {report ? (
+              <div className="border-t border-border px-5 py-3">
+                <TechnicalDetails label="Capability details" className="border-0 bg-transparent">
+                  <ShopifyCapabilityPanel report={report} />
+                </TechnicalDetails>
+              </div>
+            ) : null}
           </div>
         );
       })}
@@ -139,7 +146,7 @@ export default async function IntegrationsPage() {
             <div key={i.id} className="flex items-center justify-between rounded-xl border border-border px-4 py-3 text-sm">
               <div>
                 <Link href={`/settings/integrations/${i.id}`} className="font-medium hover:underline">{i.displayName}</Link>
-                <span className="ml-2 text-xs text-muted-foreground">{i.externalStoreId} · data retained</span>
+                <span className="ml-2 text-xs text-muted-foreground">{i.externalStoreId}, data retained</span>
               </div>
               <StatusBadge status={integrationStatus.DISCONNECTED} />
             </div>

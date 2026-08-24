@@ -53,6 +53,6 @@ export function Metric({
   );
 }
 
-export function MetricGrid({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("grid gap-3 sm:grid-cols-2 xl:grid-cols-4", className)}>{children}</div>;
+export function MetricGrid({ children, className, columns = 4 }: { children: ReactNode; className?: string; columns?: 3 | 4 }) {
+  return <div className={cn("grid gap-3 sm:grid-cols-2", columns === 3 ? "xl:grid-cols-3" : "xl:grid-cols-4", className)}>{children}</div>;
 }

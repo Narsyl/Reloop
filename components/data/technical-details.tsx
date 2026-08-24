@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -9,9 +10,7 @@ export function TechnicalDetails({ children, className, label = "Technical detai
   return (
     <details open={open} className={cn("group rounded-xl border border-border bg-muted/40", className)}>
       <summary className="flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2.5 text-[13px] font-medium text-muted-foreground select-none outline-none focus-visible:ring-3 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
-        <span aria-hidden className="inline-block text-muted-foreground/70 transition-transform duration-150 group-open:rotate-90 motion-reduce:transition-none">
-          ›
-        </span>
+        <ChevronRight aria-hidden className="size-3.5 text-muted-foreground/70 transition-transform duration-150 group-open:rotate-90 motion-reduce:transition-none" />
         {label}
       </summary>
       <div className="px-4 pt-1 pb-4 text-[13px] text-muted-foreground">{children}</div>

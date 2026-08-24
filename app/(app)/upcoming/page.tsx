@@ -72,7 +72,7 @@ export default async function UpcomingPage({ searchParams }: PageProps<"/upcomin
   }
   const reviewCount = withState.filter(({ a, state }) => needsReview(state, a)).length;
   const mode = integrations.find((i) => i.status === "CONNECTED")?.automationMode;
-  const modeSentence = mode === "DRY_RUN" ? "Automation is in test mode. Gifts are rehearsed and previewed, and nothing is written to Recharge." : mode === "OFF" ? "Automation is off. Nothing is being scheduled." : mode === "LIVE" ? "Automation is live." : "";
+  const modeSentence = mode === "DRY_RUN" ? "Test mode is on and nothing is written to Recharge." : mode === "OFF" ? "Automation is off." : mode === "LIVE" ? "Automation is live." : "";
 
   const chip = (v: View, label: string, count?: number) => (
     <Link

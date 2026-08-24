@@ -37,9 +37,10 @@ export default async function RewardScheduleDetailPage({ params }: PageProps<"/r
       />
 
       {s.milestones.length > 0 ? (
-        <section className="mb-6 rounded-xl border border-border bg-card p-5">
+        <section className="rounded-xl border border-border bg-card p-5">
           <JourneyStrip
             stops={s.milestones.map((m) => ({
+              num: m.cycleNumber,
               label: `${ordinal(m.cycleNumber)} delivery`,
               sub: m.executionMode === "INITIAL_CHECKOUT" ? `${m.rewardItem.name} at checkout` : m.rewardItem.name,
               state: "future" as const,
@@ -86,7 +87,7 @@ export default async function RewardScheduleDetailPage({ params }: PageProps<"/r
         )}
       </section>
 
-      <section className="mt-8 space-y-3">
+      <section className="space-y-3">
         <SectionHeader
           title="Programmes on this journey"
           description={`${pluralize(s.programs.length, "programme")}. Each programme keeps its own customer history. The gifts resolve through the shared gift products, so binding a gift once covers every programme here.`}

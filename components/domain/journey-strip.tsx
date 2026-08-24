@@ -7,6 +7,8 @@ export type JourneyStop = {
   /** e.g. "Whisk at checkout", "Cup added", "28 Aug" */
   sub?: string | null;
   state: "done" | "next" | "future";
+  /** The delivery number shown in the circle. Falls back to the stop's position. */
+  num?: number;
 };
 
 /**
@@ -30,7 +32,7 @@ export function JourneyStrip({ stops, className, trailing = false }: { stops: Jo
                   s.state === "future" && "border-border bg-background text-muted-foreground",
                 )}
               >
-                {s.state === "done" ? <Check className="size-4" strokeWidth={3} /> : i + 1}
+                {s.state === "done" ? <Check className="size-4" strokeWidth={3} /> : (s.num ?? i + 1)}
               </span>
               <span className={cn("text-[11.5px] leading-tight", s.state === "next" ? "font-semibold text-foreground" : "text-muted-foreground")}>
                 {s.label}

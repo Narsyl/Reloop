@@ -8,6 +8,8 @@ import { exceptionSeverity, exceptionStatus } from "@/lib/status";
 import { formatDateTime, formatRelative } from "@/lib/format";
 import { resolveException } from "@/lib/domain/exceptions/actions";
 import { StatusBadge } from "@/components/status/status-badge";
+import { TechnicalDetails, TechRow } from "@/components/data/technical-details";
+import { exceptionAdvice } from "@/lib/activity-copy";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -64,6 +66,9 @@ export function ExceptionCard({ item, timeZone, canResolve }: { item: ExceptionC
             <h3 className="text-sm font-semibold">{item.title}</h3>
           </div>
           <p className="text-sm text-foreground/80">{item.description}</p>
+          {item.status === "OPEN" && !item.autoResolved ? (
+            <p className="text-sm"><span className="font-medium">What to do: </span>{exceptionAdvice(item.type)}</p>
+          ) : null}
           <dl className="flex flex-wrap gap-x-5 gap-y-1 pt-1 text-xs text-muted-foreground">
             {item.subscription && (
               <div>
@@ -102,12 +107,17 @@ export function ExceptionCard({ item, timeZone, canResolve }: { item: ExceptionC
               <dt className="inline">Detected: </dt>
               <dd className="inline" title={formatDateTime(item.detectedAt, timeZone)}>{formatRelative(item.detectedAt)}</dd>
             </div>
-            <div>
-              <dt className="inline">Type: </dt>
-              <dd className="inline font-mono">{item.type}</dd>
-            </div>
           </dl>
           {item.resolutionNote && <p className="text-xs text-muted-foreground">Note: {item.resolutionNote}</p>}
+          <TechnicalDetails className="mt-2">
+            <TechRow label="Type">{item.type}</TechRow>
+            <TechRow label="Exception">{item.id}</TechRow>
+            {item.metadata ? (
+              <TechRow label="Metadata">
+                <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-background p-3 text-[11.5px] leading-relaxed">{JSON.stringify(item.metadata, null, 2)}</pre>
+              </TechRow>
+            ) : null}
+          </TechnicalDetails>
         </div>
         {item.status === "OPEN" && canResolve && (
           <div className="flex shrink-0 items-center gap-2">

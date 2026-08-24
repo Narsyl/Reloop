@@ -1,6 +1,7 @@
 import type { ActivityLog } from "@prisma/client";
 import { TimelineItem } from "@/components/timeline/timeline";
 import { formatDateTime, formatRelative } from "@/lib/format";
+import { humanizeActivity } from "@/lib/activity-copy";
 import type { Tone } from "@/lib/status";
 
 /** Map of activity event types → tone. Unknown types are neutral. */
@@ -33,11 +34,12 @@ const ACTOR_LABEL = { USER: "By your team", SYSTEM: null, INTEGRATION: "From the
 export function ActivityItem({ item, timeZone, last }: { item: ActivityLog; timeZone: string; last?: boolean }) {
   const tone = TONES[item.eventType] ?? "neutral";
   const actor = ACTOR_LABEL[item.actorType];
+  const { text, changed } = humanizeActivity(item.eventType, item.summary);
   return (
     <TimelineItem
       tone={tone}
       last={last}
-      title={item.summary}
+      title={<span title={changed ? item.summary : undefined}>{text}</span>}
       description={actor ? <span>{actor}</span> : undefined}
       time={<span title={formatDateTime(item.createdAt, timeZone)}>{formatRelative(item.createdAt)}</span>}
     />

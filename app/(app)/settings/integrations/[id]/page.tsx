@@ -9,6 +9,7 @@ import { DetailList, DetailRow } from "@/components/data/detail-row";
 import { Metric, MetricGrid } from "@/components/data/metric";
 import { EmptyState } from "@/components/data/empty-state";
 import { StatusBadge } from "@/components/status/status-badge";
+import { TechnicalDetails } from "@/components/data/technical-details";
 import { IntegrationActions } from "@/components/domain/integration-actions";
 import { SyncStatus, type SyncStatusData } from "@/components/domain/sync-status";
 import { AutomationModeControl, RunPlannerButton } from "@/components/domain/automation-panel";
@@ -67,6 +68,7 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
           meta={<StatusBadge status={integrationStatus[i.status]} size="md" />}
           actions={canManage ? <RecheckShopifyButton integrationId={i.id} /> : undefined}
         />
+        <div className="space-y-6 pt-6">
         <section className="grid gap-6 lg:grid-cols-2">
           <div className="space-y-3">
             <SectionHeader title="Store & authentication" />
@@ -90,10 +92,11 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
             {report ? <ShopifyCapabilityPanel report={report} compact /> : <EmptyState compact title="No capability report yet" />}
           </div>
         </section>
-        <section className="mt-6 space-y-3">
-          <SectionHeader title="Reward fulfilment products on this store" description="Each gift links to one existing Shopify product. Every journey that awards the gift uses that product, and verifying only reads it again." />
+        <section className="space-y-3">
+          <SectionHeader title="Gift products on this store" description="Each gift links to one existing Shopify product. Every journey that awards the gift uses that product, and verifying only reads it again." />
           <RewardBindingsTable rows={rows} canManage={canManage} />
         </section>
+        </div>
       </>
     );
   }
@@ -113,22 +116,24 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
         eyebrow={<Link href="/settings/integrations" className="hover:underline">Integrations</Link>}
         title={i.displayName}
         meta={<><StatusBadge status={integrationStatus[i.status]} size="md" /><StatusBadge status={automationMode[i.automationMode]} size="md" /></>}
-        description={<span>Recharge · {i.externalStoreId}{settings?.store?.currency ? ` · ${settings.store.currency}` : ""}{settings?.store?.timezone ? ` · ${settings.store.timezone}` : ""} · connected {formatDate(i.createdAt, ctx.timezone)}</span>}
+        description={<span>Recharge store {i.externalStoreId}{settings?.store?.currency ? `, ${settings.store.currency}` : ""}{settings?.store?.timezone ? `, ${settings.store.timezone}` : ""}. Connected {formatDate(i.createdAt, ctx.timezone)}.</span>}
         actions={i.status !== "DISCONNECTED" ? <IntegrationActions integrationId={i.id} displayName={i.displayName} canManage={hasRole(ctx, "ADMIN")} canOperate={hasRole(ctx, "OPERATOR")} syncRunning={!!activeSync} hasSynced={!!i.lastSuccessfulSyncAt} /> : undefined}
       />
 
+      <div className="space-y-6 pt-6">
       <MetricGrid>
-        <Metric label="Subscriptions imported" value={formatNumber(stats.subscriptions)} hint={`${formatNumber(stats.active)} active · ${formatNumber(stats.inactive)} inactive`} href="/subscriptions" />
+        <Metric label="Subscriptions imported" value={formatNumber(stats.subscriptions)} hint={`${formatNumber(stats.active)} active, ${formatNumber(stats.inactive)} inactive`} href="/subscriptions" />
         <Metric label="Active and in a programme" value={formatNumber(stats.mappedActive)} hint={stats.active ? `${Math.round((stats.mappedActive / stats.active) * 100)}% of active` : undefined} href="/subscriptions?mapping=MAPPED&status=ACTIVE" />
         <Metric label="Active but not in a programme" value={formatNumber(stats.unmappedActive)} tone={stats.unmappedActive > 0 ? "warning" : "default"} hint={stats.unmappedActive > 0 ? `${stats.unmappedProducts} product${stats.unmappedProducts === 1 ? "" : "s"} need a programme` : "Everything is assigned"} href="/subscriptions?mapping=UNMAPPED&status=ACTIVE" />
-        <Metric label="Historical order lines" value={formatNumber(stats.orderLines)} hint={stats.unlinkedOrderLines > 0 ? `${formatNumber(stats.unlinkedOrderLines)} for subscriptions not imported` : `${formatNumber(stats.customers)} customers · ${formatNumber(stats.products)} products / ${formatNumber(stats.variants)} variants`} />
+        <Metric label="Historical order lines" value={formatNumber(stats.orderLines)} hint={stats.unlinkedOrderLines > 0 ? `${formatNumber(stats.unlinkedOrderLines)} for subscriptions not imported` : `${formatNumber(stats.customers)} customers, ${formatNumber(stats.products)} products, ${formatNumber(stats.variants)} variants`} />
       </MetricGrid>
 
       <section className="grid gap-6 lg:grid-cols-2">
         <div className="space-y-3 rounded-xl border border-border bg-card p-5">
           <SectionHeader title="Capabilities" description={`What this token can actually read on this store's plan, probed directly.${i.capabilitiesCheckedAt ? ` Checked ${formatRelative(i.capabilitiesCheckedAt)}.` : ""}`} />
           <p className={`text-sm font-medium ${requiredOk ? "text-status-success" : "text-status-danger"}`}>{requiredOk ? "Everything Reloop needs is available." : "Some required capabilities are missing. Automation cannot run until they are granted."}</p>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <TechnicalDetails label="Capability details">
+          <div className="grid gap-4 pt-2 sm:grid-cols-2">
             <ul className="space-y-1 text-sm">
               <li className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Required</li>
               {REQUIRED.map((c) => {
@@ -156,25 +161,26 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
               })}
             </ul>
           </div>
+          {settings?.notes && settings.notes.length > 0 && (
+            <ul className="list-disc space-y-0.5 pt-2 pl-4 text-xs text-muted-foreground">{settings.notes.map((n, idx) => <li key={idx}>{n}</li>)}</ul>
+          )}
+          </TechnicalDetails>
           <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
             <span className="font-medium">One-time products</span>
             <span className="ml-2">Read {caps && caps.onetimes && caps.onetimes !== "unavailable" && caps.onetimes !== "unknown" ? <span className="text-status-success">yes</span> : <span className="text-status-danger">no</span>}</span>
             <span className="ml-3">Write {caps?.onetimes === "read_write" ? <span className="text-status-success">yes</span> : <span className="text-status-danger">missing</span>}</span>
             <span className="ml-2 block text-xs text-muted-foreground">{caps?.onetimes === "read_write" ? "write_subscriptions is granted, so a single armed gift can be written when you approve one. Unrestricted live mode stays off." : "POST /onetimes needs the write_subscriptions permission on the Recharge token. Update the token's permissions in Recharge, then run Test connection again. No write is attempted until granted."}</span>
           </p>
-          {settings?.notes && settings.notes.length > 0 && (
-            <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">{settings.notes.map((n, idx) => <li key={idx}>{n}</li>)}</ul>
-          )}
         </div>
 
         <div className="space-y-3 rounded-xl border border-border bg-card p-5">
-          <SectionHeader title={latest ? (latest.kind === "INITIAL" ? "Latest import" : latest.kind === "INCREMENTAL" ? "Latest sync" : "Latest journey recalculation") : "Sync"} description={latest ? `${latest.status.toLowerCase()}${latest.startedAt ? ` · started ${formatDateTime(latest.startedAt, ctx.timezone)}` : ""}${latest.finishedAt ? ` · finished ${formatRelative(latest.finishedAt)}` : ""}` : "No sync has run yet."} />
+          <SectionHeader title={latest ? (latest.kind === "INITIAL" ? "Latest import" : latest.kind === "INCREMENTAL" ? "Latest sync" : "Latest journey recalculation") : "Sync"} description={latest ? `${latest.status.toLowerCase()}${latest.startedAt ? `, started ${formatDateTime(latest.startedAt, ctx.timezone)}` : ""}${latest.finishedAt ? `, finished ${formatRelative(latest.finishedAt)}` : ""}` : "No sync has run yet."} />
           {latest ? <SyncStatus sync={toSyncData(latest)} /> : <EmptyState compact title="Not synced yet" description="Start the read-only import to bring in products, customers, subscriptions and order history." />}
         </div>
       </section>
 
       {webhooks ? (
-        <section className="mb-6 space-y-3">
+        <section className="space-y-3">
           <SectionHeader
             title="Webhooks"
             description="Low-latency signals from Recharge (order + subscription topics). Every delivery is HMAC-validated with the client secret, persisted immutably, then processed asynchronously: a targeted authoritative Recharge GET feeds the SAME import/recalculation code the sync uses, and the planner reconciles. The 4-hourly incremental sync stays on as the backstop."
@@ -263,8 +269,8 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
         </section>
       ) : null}
 
-      <section className="space-y-3">
-        <SectionHeader title="Cycle audit sample" description="Active subscriptions with the most history, for comparing against the order history in Recharge. The delivery count here must equal the number of successful orders for the subscription." />
+      <TechnicalDetails label="Cycle audit sample">
+        <p className="pt-1 pb-3 text-[13px]">Active subscriptions with the most history, for comparing against the order history in Recharge. The delivery count here must equal the number of successful orders for the subscription.</p>
         {audit.length === 0 ? (
           <EmptyState compact title="Nothing to audit yet" description="Once subscriptions are imported and mapped to programs, a sample appears here." />
         ) : (
@@ -307,7 +313,7 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
             </Table>
           </div>
         )}
-      </section>
+      </TechnicalDetails>
 
       <section className="space-y-3">
         <SectionHeader title="Sync history" description="Every import, sync and recalculation run, with where it stopped and what it counted." />
@@ -353,17 +359,15 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
         )}
       </section>
 
-      <details className="group rounded-xl border border-border bg-card">
-        <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-sm font-medium">External references</summary>
-        <div className="border-t border-border px-5 py-4">
-          <DetailList columns={3}>
-            <DetailRow label="Store id / domain" mono>{i.externalStoreId}</DetailRow>
-            <DetailRow label="Store email">{settings?.store?.email ?? "none"}</DetailRow>
-            <DetailRow label="Token scopes" mono>{settings?.scopes?.join(", ") ?? "not exposed"}</DetailRow>
-            <DetailRow label="Integration id" mono>{i.id}</DetailRow>
-          </DetailList>
-        </div>
-      </details>
+      <TechnicalDetails label="External references">
+        <DetailList columns={3}>
+          <DetailRow label="Store id / domain" mono>{i.externalStoreId}</DetailRow>
+          <DetailRow label="Store email">{settings?.store?.email ?? "none"}</DetailRow>
+          <DetailRow label="Token scopes" mono>{settings?.scopes?.join(", ") ?? "not exposed"}</DetailRow>
+          <DetailRow label="Integration id" mono>{i.id}</DetailRow>
+        </DetailList>
+      </TechnicalDetails>
+      </div>
     </>
   );
 }

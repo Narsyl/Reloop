@@ -55,17 +55,22 @@ export default async function ActionDetailPage({ params }: PageProps<"/upcoming/
         actions={canOperate && a.status === "PLANNED" ? <DryRunButton actionId={a.id} /> : undefined}
       />
 
-      <section className="mb-6 rounded-xl border border-border bg-card p-5">
-        <div className="mb-1 text-[11.5px] font-semibold tracking-wide text-muted-foreground uppercase">Reward journey</div>
+      <section className="rounded-xl border border-border bg-card p-5">
+        <div className="mb-1 flex items-baseline justify-between gap-3">
+          <div className="text-[11.5px] font-semibold tracking-wide text-muted-foreground uppercase">Reward journey</div>
+          <Link href={`/subscriptions/${a.subscriptionId}`} className="text-xs font-medium text-primary hover:underline">
+            View subscription
+          </Link>
+        </div>
         <div className="mb-4 text-sm text-muted-foreground">
-          {a.journey.program.name}. {done === 0 ? "No deliveries yet." : `${done === 1 ? "1 delivery" : `${done} deliveries`} so far.`}
+          {a.subscription.productTitleSnapshot}, {a.journey.program.name}. {done === 0 ? "No deliveries yet." : `${done === 1 ? "1 delivery" : `${done} deliveries`} so far.`}
           {a.targetChargeDate ? ` The next renewal is ${formatDateOnly(a.targetChargeDate)}.` : ""}
         </div>
         {stops.length > 0 ? <JourneyStrip stops={stops} trailing /> : null}
         <p className="mt-4 max-w-2xl text-sm">{checkSentence}</p>
       </section>
 
-      <TechnicalDetails className="mb-6">
+      <TechnicalDetails>
         <TechRow label="Action">{a.id}</TechRow>
         <TechRow label="Status (internal)">{a.status}{a.dryRun ? " (dry run)" : ""}</TechRow>
         <TechRow label="Subscription">{a.subscription.externalSubscriptionId}</TechRow>

@@ -24,6 +24,7 @@ export function buildJourneyStops(
     .slice()
     .sort((x, y) => x.cycleNumber - y.cycleNumber)
     .map((m) => ({
+      num: m.cycleNumber,
       label: `${ordinal(m.cycleNumber)} delivery`,
       sub:
         m.cycleNumber === targetCycle
@@ -34,7 +35,7 @@ export function buildJourneyStops(
       state: m.cycleNumber <= done ? "done" : m.cycleNumber === targetCycle ? "next" : "future",
     }));
   if (stops.length > 0 && done >= 1 && stops[0].state !== "done" && milestones.every((m) => m.cycleNumber !== 1)) {
-    stops.unshift({ label: "1st delivery", sub: null, state: "done" });
+    stops.unshift({ num: 1, label: "1st delivery", sub: null, state: "done" });
   }
   return stops;
 }

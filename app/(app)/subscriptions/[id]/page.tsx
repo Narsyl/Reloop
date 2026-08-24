@@ -68,7 +68,7 @@ export default async function SubscriptionDetailPage({ params }: PageProps<"/sub
       />
 
       {s.exceptions.length > 0 && (
-        <ul className="mb-6 space-y-2">
+        <ul className="space-y-2">
           {s.exceptions.map((e) => (
             <li key={e.id} className="flex items-start gap-3 rounded-xl border border-status-danger/40 bg-card px-4 py-3">
               <StatusBadge status={exceptionSeverity[e.severity]} className="mt-0.5" />
@@ -81,7 +81,7 @@ export default async function SubscriptionDetailPage({ params }: PageProps<"/sub
         </ul>
       )}
 
-      <section className="mb-6 rounded-xl border border-border bg-card p-5">
+      <section className="rounded-xl border border-border bg-card p-5">
         <div className="mb-1 text-[11.5px] font-semibold tracking-wide text-muted-foreground uppercase">Reward journey</div>
         {!journey ? (
           <p className="text-sm text-muted-foreground">
@@ -100,7 +100,7 @@ export default async function SubscriptionDetailPage({ params }: PageProps<"/sub
         )}
       </section>
 
-      <section className="mb-6 space-y-3">
+      <section className="space-y-3">
         <SectionHeader title="Gifts" description="Every gift the automation has planned or added for this subscription." />
         {s.actions.length === 0 ? (
           <EmptyState compact title="No gifts yet" description="Gifts appear once the customer approaches a reward delivery." />
@@ -111,6 +111,7 @@ export default async function SubscriptionDetailPage({ params }: PageProps<"/sub
               return (
                 <li key={a.id} className="border-b border-border last:border-0">
                   <GiftRow
+                    context="gift"
                     action={{ ...a, subscription: { customer: s.customer }, journey: { program: { name: programName } } }}
                     state={a.status === "PLANNED" ? dryRunState(a, now) : actionStatus[a.status]}
                   />
@@ -121,7 +122,7 @@ export default async function SubscriptionDetailPage({ params }: PageProps<"/sub
         )}
       </section>
 
-      <section className="mb-6 grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <section className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <div className="space-y-3">
           <SectionHeader title="Deliveries" description="Successful orders imported from Recharge. These are what the journey counts." />
           {s.orders.length === 0 ? (
@@ -183,7 +184,7 @@ export default async function SubscriptionDetailPage({ params }: PageProps<"/sub
         </div>
       </section>
 
-      <section className="mb-6 space-y-3">
+      <section className="space-y-3">
         <SectionHeader title="Activity" />
         {activity.length === 0 ? (
           <EmptyState compact title="No activity recorded" />
