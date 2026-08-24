@@ -37,13 +37,13 @@ export const subscriptionStatus: Record<SubscriptionStatus, StatusMeta> = {
 };
 
 export const actionStatus: Record<ActionStatus, StatusMeta> = {
-  PLANNED: { label: "Planned", tone: "info", description: "Decided; marker not yet attached in the subscription platform." },
-  EXECUTING: { label: "Attaching", tone: "info", description: "Attaching the marker now." },
-  ATTACHED: { label: "Attached", tone: "success", description: "Marker is on the upcoming shipment." },
-  FULFILLED: { label: "Fulfilled", tone: "success", description: "The shipment processed with the marker." },
-  FAILED: { label: "Failed", tone: "danger", description: "Needs attention — see Exceptions." },
-  CANCELLED: { label: "Cancelled", tone: "neutral", description: "No longer applicable." },
-  SUPERSEDED: { label: "Superseded", tone: "neutral", description: "Replaced by a newer action." },
+  PLANNED: { label: "Scheduled", tone: "info", description: "The gift will be added closer to the renewal." },
+  EXECUTING: { label: "Adding", tone: "info", description: "The gift is being added to the renewal now." },
+  ATTACHED: { label: "Added", tone: "success", description: "The gift is on the upcoming renewal." },
+  FULFILLED: { label: "Delivered", tone: "success", description: "The gift shipped with the renewal order." },
+  FAILED: { label: "Needs review", tone: "danger", description: "Something stopped this gift. Open it to see why." },
+  CANCELLED: { label: "Skipped", tone: "neutral", description: "This gift no longer applies." },
+  SUPERSEDED: { label: "Replaced", tone: "neutral", description: "The journey changed and a newer gift took its place." },
 };
 
 export const exceptionSeverity: Record<ExceptionSeverity, StatusMeta> = {
@@ -65,9 +65,9 @@ export const integrationStatus: Record<IntegrationStatus, StatusMeta> = {
 };
 
 export const automationMode: Record<AutomationMode, StatusMeta> = {
-  OFF: { label: "Automation off", tone: "neutral", description: "Nothing is written to the subscription platform." },
-  DRY_RUN: { label: "Dry run", tone: "info", description: "Actions are planned, dry-run and previewed; nothing is written to the subscription platform." },
-  LIVE: { label: "Live", tone: "success", description: "Markers are attached automatically (not available in this phase)." },
+  OFF: { label: "Off", tone: "neutral", description: "Nothing is scheduled and nothing is written to Recharge." },
+  DRY_RUN: { label: "Test mode", tone: "info", description: "Every gift is rehearsed and previewed. Nothing is written to Recharge." },
+  LIVE: { label: "Live", tone: "success", description: "Gifts are added automatically. Not available yet." },
 };
 
 export const eventStatus: Record<IntegrationEventStatus, StatusMeta> = {
@@ -79,8 +79,8 @@ export const eventStatus: Record<IntegrationEventStatus, StatusMeta> = {
 };
 
 export const mappingStatus: Record<MappingStatus, StatusMeta> = {
-  MAPPED: { label: "Mapped", tone: "success" },
-  UNMAPPED: { label: "Unmapped", tone: "warning", description: "Product is not assigned to a subscription program." },
+  MAPPED: { label: "In a programme", tone: "success" },
+  UNMAPPED: { label: "No programme", tone: "warning", description: "This product is not part of a programme yet, so it has no reward journey." },
 };
 
 export const enabledStatus = (enabled: boolean): StatusMeta =>
@@ -95,8 +95,8 @@ export const ruleStatus: Record<RuleStatus, StatusMeta> = {
 };
 
 export const eligibilityScopeLabel: Record<EligibilityScope, { label: string; description: string }> = {
-  PER_SUBSCRIPTION: { label: "Per subscription", description: "Each subscription restarts milestone eligibility. A returning customer's new subscription can qualify again." },
-  CUSTOMER_PROGRAM: { label: "Customer programme", description: "Lifetime deliveries of the same customer in this programme count, across cancelled and new subscriptions." },
+  PER_SUBSCRIPTION: { label: "Once per subscription", description: "Each subscription starts the journey again. A returning customer can receive the same reward on a new subscription." },
+  CUSTOMER_PROGRAM: { label: "Once per customer", description: "All of a customer's deliveries in this programme count together, so each reward is given once even across new subscriptions." },
 };
 
 /** Operational scheduling state derived from provider data — never invented as a status. */
@@ -109,10 +109,40 @@ export const activeStatus = (active: boolean): StatusMeta =>
 /** Eligibility / risk state of a planned action from its last dry run. */
 export function dryRunState(a: { status: ActionStatus; lastDryRunAt: Date | null; wouldExecute: boolean | null; blockingReason: string | null; executeAfter: Date | null }, now = new Date()): StatusMeta {
   if (a.status !== "PLANNED") return actionStatus[a.status];
-  if (a.lastDryRunAt && a.wouldExecute === true) return { label: "Would execute", tone: "success", description: "Last dry run passed every check." };
-  if (a.lastDryRunAt && a.wouldExecute === false) return { label: a.blockingReason ? "Blocked · " + a.blockingReason.split(":")[0] : "Blocked", tone: "warning", description: a.blockingReason ?? undefined };
-  if (a.executeAfter && a.executeAfter.getTime() <= now.getTime()) return { label: "Due · awaiting dry run", tone: "info" };
-  return { label: "Scheduled", tone: "neutral", description: "Dry run happens when the execute-after time is reached (or on demand)." };
+  if (a.lastDryRunAt && a.wouldExecute === true) return { label: "Verified", tone: "success", description: "The latest check against Recharge passed every step." };
+  if (a.lastDryRunAt && a.wouldExecute === false) return { label: "Needs review", tone: "warning", description: blockerSentence(a.blockingReason) };
+  if (a.executeAfter && a.executeAfter.getTime() <= now.getTime()) return { label: "Checking soon", tone: "info", description: "The next automatic check will verify this gift against Recharge." };
+  return { label: "Scheduled", tone: "neutral", description: "The gift will be checked and added closer to the renewal." };
+}
+
+/** Plain sentence for a stored dry run blocking reason. The raw reason stays in technical details. */
+export function blockerSentence(reason: string | null | undefined): string {
+  const code = reason?.split(":")[0]?.trim();
+  switch (code) {
+    case "TARGET_CHARGE_MOVED":
+      return "The renewal date moved. The gift will be rescheduled after the next sync.";
+    case "EXTERNAL_SUBSCRIPTION_NOT_ACTIVE":
+    case "SUBSCRIPTION_NOT_ACTIVE":
+      return "The subscription is no longer active in Recharge.";
+    case "EXTERNAL_NO_UPCOMING_CHARGE":
+    case "NO_UPCOMING_CHARGE":
+      return "There is no upcoming renewal to attach the gift to.";
+    case "REWARD_UNBOUND":
+      return "The reward is not linked to a Shopify product yet.";
+    case "BINDING_VARIANT_MISSING":
+      return "The linked Shopify product is missing or unavailable.";
+    case "MILESTONE_NOT_READY":
+      return "The reward journey for this step is not ready.";
+    case "EXTERNAL_READ_FAILED":
+      return "Recharge could not be reached during the last check. It will be retried.";
+    case "CUSTOMER_ALREADY_REACHED_MILESTONE":
+      return "This customer already received this reward.";
+    case "MILESTONE_ALREADY_PASSED":
+    case "JOURNEY_NOT_AT_PREVIOUS_DELIVERY":
+      return "The delivery this gift was meant for has already happened.";
+    default:
+      return reason ? "The latest check did not pass. The technical details show the reason." : "This gift needs a look.";
+  }
 }
 
 export const rewardScheduleStatus: Record<RewardScheduleStatus, StatusMeta> = {

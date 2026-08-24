@@ -28,20 +28,17 @@ const TONES: Record<string, Tone> = {
   ORGANIZATION_CREATED: "info",
 };
 
-const ACTOR_LABEL = { USER: "You / team", SYSTEM: "System", INTEGRATION: "Integration" } as const;
+const ACTOR_LABEL = { USER: "By your team", SYSTEM: null, INTEGRATION: "From the platform connection" } as const;
 
 export function ActivityItem({ item, timeZone, last }: { item: ActivityLog; timeZone: string; last?: boolean }) {
   const tone = TONES[item.eventType] ?? "neutral";
+  const actor = ACTOR_LABEL[item.actorType];
   return (
     <TimelineItem
       tone={tone}
       last={last}
       title={item.summary}
-      description={
-        <span>
-          {ACTOR_LABEL[item.actorType]} · <span className="font-mono text-[11px]">{item.eventType.toLowerCase().replace(/_/g, " ")}</span>
-        </span>
-      }
+      description={actor ? <span>{actor}</span> : undefined}
       time={<span title={formatDateTime(item.createdAt, timeZone)}>{formatRelative(item.createdAt)}</span>}
     />
   );

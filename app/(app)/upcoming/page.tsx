@@ -1,174 +1,145 @@
 import Link from "next/link";
-import { Suspense } from "react";
-import type { ActionStatus } from "@prisma/client";
 import { CalendarClock } from "lucide-react";
 import { hasRole, requireOrg } from "@/lib/auth/tenancy";
-import { listIntegrationsForAutomation, listRewardItemsForFilter, listPlannerRuns, listUpcomingActions } from "@/lib/domain/queries/upcoming";
+import { listIntegrationsForAutomation, listUpcomingActions, type UpcomingAction } from "@/lib/domain/queries/upcoming";
 import { listProgramsForFilter } from "@/lib/domain/queries/subscriptions";
-import { actionStatus, automationMode, dryRunState, eligibilityScopeLabel } from "@/lib/status";
-import { customerName, formatDateOnly, formatDateTime, formatRelative, pluralize } from "@/lib/format";
-import { PageHeader, SectionHeader } from "@/components/layout/page-header";
+import { actionStatus, dryRunState, type StatusMeta } from "@/lib/status";
+import { pluralize } from "@/lib/format";
+import { PageHeader } from "@/components/layout/page-header";
 import { EmptyState } from "@/components/data/empty-state";
-import { ClearFilters, FilterBar, SelectFilter } from "@/components/data/filter-bar";
-import { StatusBadge } from "@/components/status/status-badge";
+import { SelectFilter } from "@/components/data/filter-bar";
 import { RunPlannerButton } from "@/components/domain/automation-panel";
+import { GiftRow } from "@/components/domain/gift-row";
+import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Upcoming" };
+
+type View = "all" | "review" | "added" | "scheduled";
+
+
+function bucketOf(dateOnly: string | null, todayKey: string, weekEndKey: string): string {
+  if (!dateOnly) return "Later";
+  if (dateOnly < todayKey) return "Overdue";
+  if (dateOnly === todayKey) return "Today";
+  const tomorrow = nextDay(todayKey);
+  if (dateOnly === tomorrow) return "Tomorrow";
+  if (dateOnly <= weekEndKey) return "This week";
+  return "Later";
+}
+function nextDay(key: string): string {
+  const d = new Date(`${key}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+function addDays(key: string, n: number): string {
+  const d = new Date(`${key}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+const BUCKET_ORDER = ["Overdue", "Today", "Tomorrow", "This week", "Later"];
 
 export default async function UpcomingPage({ searchParams }: PageProps<"/upcoming">) {
   const ctx = await requireOrg();
   const sp = await searchParams;
-  const status = (typeof sp.status === "string" ? sp.status : "LIVE") as ActionStatus | "ALL" | "LIVE";
+  const view = (typeof sp.view === "string" && ["all", "review", "added", "scheduled"].includes(sp.view) ? sp.view : "all") as View;
   const programId = typeof sp.program === "string" ? sp.program : undefined;
-  const rewardItemId = typeof sp.reward === "string" ? sp.reward : undefined;
-  const integrationId = typeof sp.integration === "string" ? sp.integration : undefined;
-  const [data, programs, rewards, integrations, runs] = await Promise.all([
-    listUpcomingActions(ctx, { status, programId, rewardItemId, integrationId }),
+  const [data, programs, integrations] = await Promise.all([
+    listUpcomingActions(ctx, { status: "LIVE", programId }),
     listProgramsForFilter(ctx),
-    listRewardItemsForFilter(ctx),
     listIntegrationsForAutomation(ctx),
-    listPlannerRuns(ctx, { take: 5 }),
   ]);
   const canManage = hasRole(ctx, "ADMIN");
   const now = new Date();
+  const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: ctx.timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+  const weekEndKey = addDays(todayKey, 6);
+
+  const withState = data.rows.map((a) => ({ a, state: dryRunState(a, now) as StatusMeta }));
+  const needsReview = (s: StatusMeta, a: UpcomingAction) => a.status === "FAILED" || s.label === "Needs review";
+  const rows = withState.filter(({ a, state }) => {
+    if (view === "review") return needsReview(state, a);
+    if (view === "added") return a.status === "ATTACHED" || a.status === "FULFILLED";
+    if (view === "scheduled") return a.status === "PLANNED" && !needsReview(state, a);
+    return true;
+  });
+
+  const reviewRows = rows.filter(({ a, state }) => needsReview(state, a));
+  const queueRows = rows.filter(({ a, state }) => !needsReview(state, a));
+  const buckets = new Map<string, typeof queueRows>();
+  for (const r of queueRows) {
+    const b = bucketOf(r.a.targetChargeDate, todayKey, weekEndKey);
+    buckets.set(b, [...(buckets.get(b) ?? []), r]);
+  }
+  const reviewCount = withState.filter(({ a, state }) => needsReview(state, a)).length;
+  const mode = integrations.find((i) => i.status === "CONNECTED")?.automationMode;
+  const modeSentence = mode === "DRY_RUN" ? "Automation is in test mode. Gifts are rehearsed and previewed, and nothing is written to Recharge." : mode === "OFF" ? "Automation is off. Nothing is being scheduled." : mode === "LIVE" ? "Automation is live." : "";
+
+  const chip = (v: View, label: string, count?: number) => (
+    <Link
+      key={v}
+      href={{ pathname: "/upcoming", query: { ...(programId ? { program: programId } : {}), ...(v === "all" ? {} : { view: v }) } }}
+      className={cn(
+        "inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-[12.5px] font-medium transition-colors",
+        view === v ? "border-primary/30 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+      )}
+    >
+      {label}
+      {typeof count === "number" && count > 0 ? <span className="tnum text-[11px] opacity-70">{count}</span> : null}
+    </Link>
+  );
 
   return (
     <>
       <PageHeader
         title="Upcoming"
-        description="Real planned actions: what the engine would add to which shipment. In dry run, each action is validated against fresh data and previewed — nothing is written to the subscription platform."
-        meta={data.rows.length > 0 ? <span className="text-xs text-muted-foreground">{pluralize(data.rows.length, "action")}</span> : null}
+        description={`${pluralize(data.rows.length, "gift")} queued. ${modeSentence}`}
+        actions={canManage && mode && mode !== "OFF" ? <RunPlannerButton integrationId={integrations.find((i) => i.status === "CONNECTED")!.id} size="xs" /> : undefined}
       />
 
-      <section className="mb-6 grid gap-3 lg:grid-cols-2">
-        {integrations.map((i) => {
-          const planned = i.counts.PLANNED ?? 0;
-          const lr = i.lastPlannerRun;
-          const c = (lr?.countsJson ?? {}) as Record<string, number | string | null>;
-          return (
-            <div key={i.id} className="rounded-xl border border-border bg-card p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Link href={`/settings/integrations/${i.id}`} className="text-sm font-semibold hover:underline">{i.displayName}</Link>
-                  <StatusBadge status={automationMode[i.automationMode]} />
-                </div>
-                {canManage && i.status === "CONNECTED" ? <RunPlannerButton integrationId={i.id} size="xs" disabled={i.automationMode === "OFF"} /> : null}
-              </div>
-              <div className="mt-2 text-xs text-muted-foreground">
-                <span className="tnum font-medium text-foreground">{planned}</span> planned{i.counts.CANCELLED ? ` · ${i.counts.CANCELLED} cancelled` : ""}{i.counts.SUPERSEDED ? ` · ${i.counts.SUPERSEDED} superseded` : ""}
-                {lr ? (
-                  <>
-                    {" · "}last planner run {formatRelative(lr.startedAt, now)} ({lr.trigger.toLowerCase()}) —{" "}
-                    {c.skippedReason ? <span>skipped: {String(c.skippedReason)}</span> : <span className="tnum">{c.planned ?? 0} planned · {c.replanned ?? 0} replanned · {c.confirmed ?? 0} confirmed · {c.cancelled ?? 0} cancelled</span>}
-                  </>
-                ) : " · planner has not run yet"}
-              </div>
-              {i.automationMode === "OFF" ? <p className="mt-1 text-xs text-muted-foreground">Automation is off — switch this integration to dry run on its settings page to start planning.</p> : null}
-            </div>
-          );
-        })}
-      </section>
-
-      <Suspense>
-        <FilterBar>
-          <SelectFilter
-            name="status"
-            label="Status"
-            allLabel="Live (planned · attached · failed)"
-            options={[
-              { value: "PLANNED", label: "Planned" },
-              { value: "ATTACHED", label: "Attached" },
-              { value: "FULFILLED", label: "Fulfilled" },
-              { value: "FAILED", label: "Failed" },
-              { value: "CANCELLED", label: "Cancelled" },
-              { value: "SUPERSEDED", label: "Superseded" },
-              { value: "ALL", label: "Everything" },
-            ]}
-          />
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        {chip("all", "All")}
+        {chip("review", "Needs review", reviewCount)}
+        {chip("added", "Added")}
+        {chip("scheduled", "Scheduled")}
+        <span className="ml-auto">
           <SelectFilter name="program" label="Programme" options={programs.map((p) => ({ value: p.id, label: p.name }))} />
-          <SelectFilter name="reward" label="Reward" options={rewards.map((m) => ({ value: m.id, label: m.name }))} />
-          {integrations.length > 1 ? <SelectFilter name="integration" label="Store" options={integrations.map((i) => ({ value: i.id, label: i.displayName }))} /> : null}
-          <ClearFilters />
-        </FilterBar>
-      </Suspense>
+        </span>
+      </div>
 
-      {data.rows.length === 0 ? (
+      {rows.length === 0 ? (
         <EmptyState
           icon={CalendarClock}
-          title="Nothing planned"
-          description="When a subscription has completed the delivery before a Ready rule's target cycle and has an upcoming charge, the planner creates the action for its next shipment and it shows up here."
+          title={view === "review" ? "Nothing needs review" : "No gifts queued"}
+          description={view === "review" ? "Every queued gift passed its latest check." : "Gifts appear here as customers approach the next step of their reward journey."}
         />
       ) : (
-        <div className="space-y-6">
-          {data.groups.map(([date, rows]) => (
-            <section key={date} className="space-y-2">
-              <h2 className="tnum sticky top-14 z-10 -mx-1 bg-background/95 px-1 py-1 text-sm font-semibold backdrop-blur">
-                {date === "unscheduled" ? "Unscheduled" : <>Target charge {formatDateOnly(date)}</>}
-                <span className="ml-2 text-xs font-normal text-muted-foreground">{pluralize(rows.length, "action")}</span>
-              </h2>
-              <div className="overflow-x-auto rounded-xl border border-border bg-card">
-                <table className="w-full text-sm">
-                  <thead className="text-left text-xs text-muted-foreground">
-                    <tr className="border-b border-border">
-                      <th className="px-3 py-2 font-medium">Customer</th>
-                      <th className="px-3 py-2 font-medium">Programme</th>
-                      <th className="px-3 py-2 text-right font-medium">Target delivery</th>
-                      <th className="px-3 py-2 font-medium">Reward</th>
-                      <th className="px-3 py-2 font-medium">Planned execution</th>
-                      <th className="px-3 py-2 font-medium">Status</th>
-                      <th className="px-3 py-2 font-medium">Eligibility / risk</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((a) => {
-                      const state = dryRunState(a, now);
-                      return (
-                        <tr key={a.id} className="border-b border-border last:border-0 hover:bg-muted/40">
-                          <td className="px-3 py-2">
-                            <Link href={`/upcoming/${a.id}`} className="block font-medium hover:underline">{customerName(a.subscription.customer)}</Link>
-                            <span className="block text-xs text-muted-foreground">{a.subscription.productTitleSnapshot} · <span className="font-mono">{a.subscription.externalSubscriptionId}</span></span>
-                          </td>
-                          <td className="px-3 py-2 text-muted-foreground">{a.journey.program.name}<span className="block text-[11px]">{a.milestone ? `${a.milestone.schedule.name} · delivery ${a.milestone.cycleNumber} → ${a.milestone.rewardItem.name} · ${eligibilityScopeLabel[a.milestone.eligibilityScope].label}` : a.rule ? `legacy rule: ${a.rule.name}` : "—"}</span></td>
-                          <td className="tnum px-3 py-2 text-right">{a.targetCycle}</td>
-                          <td className="px-3 py-2">{a.rewardItem?.name ?? a.fulfillmentMarker?.name ?? "—"}{a.fulfillmentMarker ? <span className="ml-1 text-[11px] text-muted-foreground">legacy marker{a.fulfillmentMarker.placeholder ? " · placeholder" : ""}</span> : null}{a.fulfillmentMarker ? <span className="block font-mono text-[11px] text-muted-foreground">{a.fulfillmentMarker.externalVariantId}</span> : null}</td>
-                          <td className="tnum px-3 py-2 text-xs">{a.executeAfter ? formatDateTime(a.executeAfter, ctx.timezone) : "—"}{a.replanCount > 0 ? <span className="block text-[11px] text-muted-foreground">replanned ×{a.replanCount}</span> : null}</td>
-                          <td className="px-3 py-2"><StatusBadge status={actionStatus[a.status]} />{a.dryRun ? <span className="ml-1 text-[11px] text-muted-foreground">dry run</span> : null}</td>
-                          <td className="px-3 py-2"><StatusBadge status={state} />{a.lastDryRunAt ? <span className="block text-[11px] text-muted-foreground">checked {formatRelative(a.lastDryRunAt, now)}</span> : null}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
+        <div className="space-y-5">
+          {reviewRows.length > 0 && view !== "added" && view !== "scheduled" ? (
+            <QueueGroup title="Needs review" tone="danger" rows={reviewRows} />
+          ) : null}
+          {BUCKET_ORDER.filter((b) => buckets.has(b)).map((b) => (
+            <QueueGroup key={b} title={b} rows={buckets.get(b)!} />
           ))}
         </div>
       )}
-
-      {runs.length > 0 ? (
-        <section className="mt-8 space-y-2">
-          <SectionHeader title="Planner runs" description="Each run re-evaluates the whole integration: Ready rules × programme population × eligibility scope. Idempotent — re-running never duplicates an action." />
-          <div className="overflow-x-auto rounded-xl border border-border bg-card">
-            <table className="w-full text-sm">
-              <thead className="text-left text-xs text-muted-foreground"><tr className="border-b border-border"><th className="px-3 py-2 font-medium">When</th><th className="px-3 py-2 font-medium">Store</th><th className="px-3 py-2 font-medium">Trigger</th><th className="px-3 py-2 font-medium">Mode</th><th className="px-3 py-2 font-medium">Result</th></tr></thead>
-              <tbody>
-                {runs.map((r) => {
-                  const c = (r.countsJson ?? {}) as Record<string, number | string | null>;
-                  return (
-                    <tr key={r.id} className="border-b border-border last:border-0">
-                      <td className="tnum px-3 py-2 text-xs">{formatDateTime(r.startedAt, ctx.timezone)}</td>
-                      <td className="px-3 py-2 text-xs">{r.integration.displayName}</td>
-                      <td className="px-3 py-2 text-xs">{r.trigger.toLowerCase()}</td>
-                      <td className="px-3 py-2 text-xs">{r.automationMode}</td>
-                      <td className="px-3 py-2 text-xs">{r.status !== "COMPLETED" ? `${r.status}${r.error ? ` — ${r.error.slice(0, 80)}` : ""}` : c.skippedReason ? `skipped: ${String(c.skippedReason)}` : <span className="tnum">{c.subscriptionsEvaluated ?? 0} evaluated · {c.planned ?? 0} planned · {c.replanned ?? 0} replanned · {c.confirmed ?? 0} confirmed · {c.cancelled ?? 0} cancelled · {c.superseded ?? 0} superseded{Number(c.milestonesSkipped) > 0 ? ` · ${c.milestonesSkipped} milestone(s) not plannable` : ""}</span>}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
     </>
+  );
+}
+
+function QueueGroup({ title, rows, tone }: { title: string; rows: { a: UpcomingAction; state: StatusMeta }[]; tone?: "danger" }) {
+  return (
+    <section className={cn("overflow-hidden rounded-xl border bg-card", tone === "danger" ? "border-status-danger/40" : "border-border")}>
+      <header className={cn("flex items-center justify-between border-b border-border px-4 py-2", tone === "danger" && "border-status-danger/30")}>
+        <h2 className={cn("text-[11.5px] font-semibold tracking-wide uppercase", tone === "danger" ? "text-status-danger" : "text-muted-foreground")}>{title}</h2>
+        <span className="tnum text-[11.5px] text-muted-foreground">{rows.length}</span>
+      </header>
+      <ul>
+        {rows.map(({ a, state }) => (
+          <li key={a.id} className="border-b border-border last:border-0">
+            <GiftRow action={a} state={a.status === "PLANNED" ? state : actionStatus[a.status]} />
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

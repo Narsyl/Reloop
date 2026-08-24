@@ -5,9 +5,10 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const TABS = [
-  { href: "/settings/general", label: "General" },
+  { href: "/settings/integrations", label: "Connections" },
+  { href: "/settings/products", label: "Programmes and products" },
   { href: "/settings/team", label: "Team" },
-  { href: "/settings/integrations", label: "Integrations" },
+  { href: "/settings/general", label: "Workspace" },
 ];
 
 export function SettingsTabs() {

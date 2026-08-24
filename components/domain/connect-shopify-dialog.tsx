@@ -46,7 +46,7 @@ export function ConnectShopifyDialog({ rechargeIntegrations, disabled, existing 
         setError(r.error);
         return;
       }
-      toast.success(`Shopify connected — ${r.data!.report.store.name}`);
+      toast.success(`Shopify connected to ${r.data!.report.store.name}`);
       setOpen(false);
       setClientSecret("");
       router.refresh();
@@ -59,7 +59,7 @@ export function ConnectShopifyDialog({ rechargeIntegrations, disabled, existing 
         <DialogHeader>
           <DialogTitle>{existing ? "Reconnect Shopify" : "Connect Shopify (read-only catalogue)"}</DialogTitle>
           <DialogDescription>
-            From the Shopify Dev Dashboard app (Settings): paste the <span className="font-medium">Client ID</span> and <span className="font-medium">Client secret</span>. We exchange them server-side for a short-lived Admin API token (refreshed automatically) and only ever read products — used to bind Whisk / Cup / Spoon to their existing variants. Required scope: <span className="font-mono">read_products</span> (<span className="font-mono">read_publications</span> optional). No writes, no orders, no customers.
+            From the Shopify Dev Dashboard app (Settings): paste the <span className="font-medium">Client ID</span> and <span className="font-medium">Client secret</span>. We exchange them on the server for a short lived Admin API token that refreshes automatically, and only ever read products so each gift can link to the product that ships. Required scope: <span className="font-mono">read_products</span> (<span className="font-mono">read_publications</span> optional). No writes, no orders, no customers.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -71,7 +71,7 @@ export function ConnectShopifyDialog({ rechargeIntegrations, disabled, existing 
             <div className="space-y-1.5">
               <Label htmlFor="shp-pair">Serves Recharge store</Label>
               <select id="shp-pair" className={selectCls} value={paired} onChange={(e) => setPaired(e.target.value)}>
-                {rechargeIntegrations.length === 0 ? <option value="">— no Recharge integration yet —</option> : null}
+                {rechargeIntegrations.length === 0 ? <option value="">No Recharge connection yet</option> : null}
                 {rechargeIntegrations.map((i) => <option key={i.id} value={i.id}>{i.displayName}</option>)}
               </select>
             </div>
@@ -86,13 +86,13 @@ export function ConnectShopifyDialog({ rechargeIntegrations, disabled, existing 
               <Input id="shp-client-secret" type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} className="font-mono" autoComplete="off" />
             </div>
           </div>
-          <p className="text-[11px] text-muted-foreground">Encrypted per integration; the secret is never shown again, never logged and never sent to the browser after saving. Test first — nothing is saved until you connect.</p>
+          <p className="text-[11px] text-muted-foreground">Encrypted per integration; the secret is never shown again, never logged and never sent to the browser after saving. Test first. Nothing is saved until you connect.</p>
           {error ? <p className="rounded-lg border border-status-danger/30 bg-status-danger-bg px-3 py-2 text-xs text-status-danger">{error}</p> : null}
           {report ? (
             <div className="rounded-lg border border-border p-3">
               <div className="mb-2 text-sm"><span className="font-semibold">{report.store.name}</span> · <span className="font-mono text-xs">{report.store.myshopifyDomain}</span> · {report.store.currencyCode}{report.store.planDisplayName ? ` · ${report.store.planDisplayName}` : ""}{report.tokenExpiresAt ? <span className="text-xs text-muted-foreground"> · token ok (auto-refresh)</span> : null}</div>
               <ShopifyCapabilityPanel report={report} />
-              <p className={`mt-2 text-xs font-medium ${report.requiredOk ? "text-status-success" : "text-status-danger"}`}>{report.requiredOk ? "Ready to connect." : "Not usable yet — grant read_products to the app, reinstall it and test again."}</p>
+              <p className={`mt-2 text-xs font-medium ${report.requiredOk ? "text-status-success" : "text-status-danger"}`}>{report.requiredOk ? "Ready to connect." : "Not usable yet. Grant read_products to the app, reinstall it and test again."}</p>
             </div>
           ) : null}
         </div>

@@ -4,7 +4,7 @@ import type { SubscriptionStatus } from "@prisma/client";
 import { Repeat } from "lucide-react";
 import { requireOrg } from "@/lib/auth/tenancy";
 import { SUBSCRIPTION_PAGE_SIZE, listProgramsForFilter, listSubscriptions } from "@/lib/domain/queries/subscriptions";
-import { actionStatus, schedulingState, subscriptionStatus } from "@/lib/status";
+import { actionStatus, subscriptionStatus } from "@/lib/status";
 import { customerName, formatDateOnly } from "@/lib/format";
 import { PageHeader } from "@/components/layout/page-header";
 import { EmptyState } from "@/components/data/empty-state";
@@ -34,11 +34,11 @@ export default async function SubscriptionsPage({ searchParams }: PageProps<"/su
     <>
       <PageHeader
         title="Subscriptions"
-        description="Every subscription imported from your platform, where each one is in its program journey, and what the automation plans next."
+        description="Every subscription imported from Recharge, how far along each customer is, and the next gift on the way."
       />
       <Suspense>
         <FilterBar>
-          <SearchFilter placeholder="Customer, email, ID, SKU, product…" />
+          <SearchFilter placeholder="Search customers and products" />
           <SelectFilter
             name="status"
             label="Status"
@@ -49,21 +49,21 @@ export default async function SubscriptionsPage({ searchParams }: PageProps<"/su
               { value: "EXPIRED", label: "Expired" },
             ]}
           />
-          <SelectFilter name="program" label="Program" options={programs.map((p) => ({ value: p.id, label: p.name }))} />
+          <SelectFilter name="program" label="Programme" options={programs.map((p) => ({ value: p.id, label: p.name }))} />
           <SelectFilter
             name="mapping"
-            label="Mapping"
+            label="Programme membership"
             options={[
-              { value: "MAPPED", label: "Mapped to a program" },
-              { value: "UNMAPPED", label: "Unmapped" },
+              { value: "MAPPED", label: "In a programme" },
+              { value: "UNMAPPED", label: "Not in a programme" },
             ]}
           />
           <SelectFilter
             name="action"
-            label="Next action"
+            label="Queued gift"
             options={[
-              { value: "ANY", label: "Has queued action" },
-              { value: "NONE", label: "No queued action" },
+              { value: "ANY", label: "Has a queued gift" },
+              { value: "NONE", label: "No queued gift" },
             ]}
           />
           <ClearFilters />
@@ -76,7 +76,7 @@ export default async function SubscriptionsPage({ searchParams }: PageProps<"/su
           title={data.total === 0 && !q && status === "ALL" ? "No subscriptions yet" : "No subscriptions match"}
           description={
             data.total === 0 && !q && status === "ALL"
-              ? "Connect your subscription platform to import subscriptions. The import is read-only."
+              ? "Connect Recharge to import subscriptions. The import only reads and writes nothing back."
               : "Try a different search or clear the filters."
           }
         />
@@ -87,11 +87,10 @@ export default async function SubscriptionsPage({ searchParams }: PageProps<"/su
               <TableRow>
                 <TableHead>Customer</TableHead>
                 <TableHead>Product</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Completed cycles</TableHead>
-                <TableHead>Next charge</TableHead>
-                <TableHead>Next action</TableHead>
-                <TableHead>Integration</TableHead>
+                <TableHead>Programme</TableHead>
+                <TableHead className="text-right">Deliveries</TableHead>
+                <TableHead>Next renewal</TableHead>
+                <TableHead>Next gift</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -101,35 +100,31 @@ export default async function SubscriptionsPage({ searchParams }: PageProps<"/su
                   <TableRow key={s.id}>
                     <TableCell>
                       <Link href={`/subscriptions/${s.id}`} className="block">
-                        <span className="block font-medium hover:underline">{customerName(s.customer)}</span>
-                        <span className="block truncate text-xs text-muted-foreground">{s.customer?.email ?? `#${s.externalSubscriptionId}`}</span>
+                        <span className="flex items-center gap-2">
+                          <span className="font-medium hover:underline">{customerName(s.customer)}</span>
+                          {s.status !== "ACTIVE" ? <StatusBadge status={subscriptionStatus[s.status]} dot={false} /> : null}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">{s.customer?.email ?? `Subscription ${s.externalSubscriptionId}`}</span>
                       </Link>
                     </TableCell>
                     <TableCell>
-                      <span className="block">{s.productTitleSnapshot}</span>
-                      <span className="block text-xs text-muted-foreground">
-                        {s.latestJourney ? s.latestJourney.program.name : <StatusBadge status={{ label: "Unmapped", tone: "warning" }} />}
-                      </span>
+                      <span className="block max-w-56 truncate">{s.productTitleSnapshot}</span>
                     </TableCell>
-                    <TableCell>
-                      <span className="flex flex-col items-start gap-1">
-                        <StatusBadge status={subscriptionStatus[s.status]} />
-                        {schedulingState(s.status, s.nextChargeDate) && <StatusBadge status={schedulingState(s.status, s.nextChargeDate)!} dot={false} />}
-                      </span>
+                    <TableCell className="text-muted-foreground">
+                      {s.latestJourney ? s.latestJourney.program.name : <span className="text-status-warning">Not in a programme</span>}
                     </TableCell>
-                    <TableCell className="tnum text-right">{s.latestJourney?.successfulCycles ?? "—"}</TableCell>
-                    <TableCell className="tnum">{formatDateOnly(s.nextChargeDate)}</TableCell>
+                    <TableCell className="tnum text-right">{s.latestJourney ? s.latestJourney.successfulCycles : ""}</TableCell>
+                    <TableCell className="tnum">{s.nextChargeDate ? formatDateOnly(s.nextChargeDate) : <span className="text-muted-foreground">None scheduled</span>}</TableCell>
                     <TableCell>
                       {next ? (
                         <span className="flex items-center gap-2">
-                          <span className="truncate text-sm">→ {next.rewardItem?.name ?? next.fulfillmentMarker?.name ?? "—"}</span>
+                          <span className="truncate text-sm">{next.rewardItem?.name ?? next.fulfillmentMarker?.name ?? "Gift"}</span>
                           <StatusBadge status={actionStatus[next.status]} dot={false} />
                         </span>
                       ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
+                        <span className="text-xs text-muted-foreground">None planned</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{s.integration.displayName}</TableCell>
                   </TableRow>
                 );
               })}

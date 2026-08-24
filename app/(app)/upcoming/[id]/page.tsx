@@ -2,25 +2,20 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { hasRole, requireOrg } from "@/lib/auth/tenancy";
 import { getActionDetail } from "@/lib/domain/queries/upcoming";
+import { resolveProgramRewards } from "@/lib/domain/rewards/resolver";
 import type { DryRunResult } from "@/lib/domain/actions/dry-run";
-import { actionStatus, automationMode, dryRunState, eligibilityScopeLabel, ruleStatus } from "@/lib/status";
+import { actionStatus, blockerSentence, dryRunState } from "@/lib/status";
 import { customerName, formatDateOnly, formatDateTime, formatRelative } from "@/lib/format";
+import { giftSentence } from "@/lib/copy";
 import { PageHeader, SectionHeader } from "@/components/layout/page-header";
 import { StatusBadge } from "@/components/status/status-badge";
 import { DryRunButton } from "@/components/domain/dry-run-button";
+import { JourneyStrip } from "@/components/domain/journey-strip";
+import { buildJourneyStops } from "@/lib/domain/journey-stops";
+import { TechnicalDetails, TechRow } from "@/components/data/technical-details";
 import { ActivityItem } from "@/components/timeline/activity-item";
-import { EmptyState } from "@/components/data/empty-state";
 
-export const metadata = { title: "Planned action" };
-
-function Row({ label, children, mono }: { label: string; children: React.ReactNode; mono?: boolean }) {
-  return (
-    <div className="grid grid-cols-[11rem_1fr] gap-3 border-b border-border py-2 text-sm last:border-0">
-      <div className="text-muted-foreground">{label}</div>
-      <div className={mono ? "font-mono text-xs" : ""}>{children}</div>
-    </div>
-  );
-}
+export const metadata = { title: "Queued gift" };
 
 export default async function ActionDetailPage({ params }: PageProps<"/upcoming/[id]">) {
   const ctx = await requireOrg();
@@ -31,69 +26,77 @@ export default async function ActionDetailPage({ params }: PageProps<"/upcoming/
   const dr = (a.dryRunJson as unknown as DryRunResult | null) ?? null;
   const now = new Date();
   const canOperate = hasRole(ctx, "OPERATOR");
+  const name = customerName(a.subscription.customer);
+  const state = a.status === "PLANNED" ? dryRunState(a, now) : actionStatus[a.status];
+
+  // journey strip: the programme's schedule stops with this customer's progress
+  const view = a.programId ? await resolveProgramRewards(ctx, a.programId) : null;
+  const done = a.journey.successfulCycles;
+  const stops = buildJourneyStops(view?.milestones ?? [], done, a.targetCycle, { addedAtTarget: a.status === "ATTACHED" });
+
+  const checkSentence = (() => {
+    if (a.status === "ATTACHED") return `The gift is on the ${a.targetChargeDate ? formatDateOnly(a.targetChargeDate) : "upcoming"} renewal in Recharge.`;
+    if (a.status === "FULFILLED") return "The gift shipped with the renewal order.";
+    if (a.status === "CANCELLED") return blockerSentence(a.cancelReason);
+    if (a.status === "SUPERSEDED") return "The journey changed and a newer gift took the place of this one.";
+    if (a.status === "FAILED") return blockerSentence(a.lastError);
+    if (a.lastDryRunAt && a.wouldExecute === true) return `Checked against Recharge ${formatRelative(a.lastDryRunAt, now)}. Everything passed, and the gift will be added with the ${a.targetChargeDate ? formatDateOnly(a.targetChargeDate) : "next"} renewal.`;
+    if (a.lastDryRunAt && a.wouldExecute === false) return blockerSentence(a.blockingReason);
+    return "This gift has not been checked yet. It will be verified against Recharge automatically before the renewal.";
+  })();
 
   return (
     <>
       <PageHeader
         eyebrow={<Link href="/upcoming" className="hover:underline">Upcoming</Link>}
-        title={`${customerName(a.subscription.customer)} · ${a.journey.program.name} delivery ${a.targetCycle}`}
-        description={`→ ${a.rewardItem?.name ?? a.fulfillmentMarker?.name ?? "reward"}${a.targetChargeDate ? ` · target charge ${formatDateOnly(a.targetChargeDate)}` : ""}`}
-        meta={<><StatusBadge status={actionStatus[a.status]} size="md" /><StatusBadge status={dryRunState(a, now)} size="md" /><StatusBadge status={automationMode[a.integration.automationMode]} size="md" /></>}
+        title={name}
+        description={giftSentence(a)}
+        meta={<StatusBadge status={state} size="md" />}
         actions={canOperate && a.status === "PLANNED" ? <DryRunButton actionId={a.id} /> : undefined}
       />
 
-      <section className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-xl border border-border bg-card p-4">
-          <SectionHeader title="What is planned" />
-          <Row label="Customer">{customerName(a.subscription.customer)}{a.subscription.customer?.email ? <span className="ml-2 text-xs text-muted-foreground">{a.subscription.customer.email}</span> : null}</Row>
-          <Row label="Subscription"><Link href={`/subscriptions/${a.subscriptionId}`} className="hover:underline">{a.subscription.productTitleSnapshot}</Link> <span className="ml-1 font-mono text-xs text-muted-foreground">{a.subscription.externalSubscriptionId}</span> · {a.subscription.status}</Row>
-          <Row label="Programme">{a.journey.program.name}</Row>
-          <Row label="Journey cycles">{a.journey.successfulCycles} successful {a.journey.successfulCycles === 1 ? "delivery" : "deliveries"}{a.journey.cycles.length ? <span className="block text-xs text-muted-foreground">{a.journey.cycles.map((c) => `#${c.cycleNumber} order ${c.externalOrderId} · ${formatDateOnly(c.processedAt.toISOString().slice(0, 10))}`).join(" · ")}</span> : null}</Row>
-          <Row label="Milestone">{a.milestone ? <><Link href={`/rewards/${a.milestone.schedule.id}`} className="hover:underline">{a.milestone.schedule.name}</Link> · delivery {a.milestone.cycleNumber} → <span className="font-medium">{a.milestone.rewardItem.name}</span> <span className="ml-1 text-xs text-muted-foreground">({a.milestone.executionMode === "INITIAL_CHECKOUT" ? "initial checkout" : "upcoming renewal"})</span></> : <span className="text-muted-foreground">—</span>}</Row>
-          {a.rule ? <Row label="Legacy rule"><Link href={`/rules/${a.rule.id}`} className="hover:underline">{a.rule.name}</Link> <StatusBadge status={ruleStatus[a.rule.status]} /></Row> : null}
-          <Row label="Eligibility scope">{a.eligibilityScope ? <>{eligibilityScopeLabel[a.eligibilityScope].label}<span className="block text-xs text-muted-foreground">{eligibilityScopeLabel[a.eligibilityScope].description}</span></> : "—"}</Row>
-          <Row label="Target cycle">{a.targetCycle}</Row>
-          <Row label="Target charge date">{a.targetChargeDate ? formatDateOnly(a.targetChargeDate) : "—"} <span className="ml-1 font-mono text-xs text-muted-foreground">{a.targetChargeDate}</span></Row>
-          <Row label="Target charge at">{a.targetChargeAt ? <>{formatDateTime(a.targetChargeAt, ctx.timezone)} <span className="text-xs text-muted-foreground">(local midnight in {ctx.timezone})</span></> : "—"}</Row>
-          <Row label="Execute after">{a.executeAfter ? <>{formatDateTime(a.executeAfter, ctx.timezone)} <span className="text-xs text-muted-foreground">({formatRelative(a.executeAfter, now)})</span></> : "—"}</Row>
-          <Row label="Reward">{a.rewardItem?.name ?? a.fulfillmentMarker?.name ?? "—"}{a.fulfillmentMarker?.placeholder ? <span className="ml-2 text-xs text-status-warning">LEGACY PLACEHOLDER — not executable</span> : a.fulfillmentMarker ? <span className="ml-2 text-xs text-muted-foreground">legacy marker</span> : null}</Row>
-          {dr?.target ? <Row label="Fulfilment variant (Shopify)"><span className="font-mono text-xs">{dr.target.externalVariantId}</span> · {dr.target.title}{dr.target.sku ? ` · SKU ${dr.target.sku}` : ""}</Row> : a.fulfillmentMarker ? <Row label="External variant id" mono>{a.fulfillmentMarker.externalVariantId}</Row> : null}
-          <Row label="Recharge address id" mono>{a.externalAddressId ?? a.subscription.externalAddressId}</Row>
-          <Row label="Planned">{formatDateTime(a.createdAt, ctx.timezone)}{a.plannerRun ? <span className="ml-1 text-xs text-muted-foreground">by the {a.plannerRun.trigger.toLowerCase()} planner run ({a.plannerRun.automationMode})</span> : null}{a.replanCount > 0 ? <span className="block text-xs text-muted-foreground">replanned ×{a.replanCount} · last evaluated {a.lastPlannedAt ? formatRelative(a.lastPlannedAt, now) : "—"}</span> : null}</Row>
-          {a.cancelReason ? <Row label="Cancel reason">{a.cancelReason}</Row> : null}
-          <Row label="Idempotency" mono>live {a.liveKey ?? "—"}<br />owner {a.ownerKey ?? "—"}</Row>
+      <section className="mb-6 rounded-xl border border-border bg-card p-5">
+        <div className="mb-1 text-[11.5px] font-semibold tracking-wide text-muted-foreground uppercase">Reward journey</div>
+        <div className="mb-4 text-sm text-muted-foreground">
+          {a.journey.program.name}. {done === 0 ? "No deliveries yet." : `${done === 1 ? "1 delivery" : `${done} deliveries`} so far.`}
+          {a.targetChargeDate ? ` The next renewal is ${formatDateOnly(a.targetChargeDate)}.` : ""}
         </div>
-
-        <div className="rounded-xl border border-border bg-card p-4">
-          <SectionHeader title="Dry run" description="Fresh internal state + read-only Recharge reads → would we execute, and exactly what we would send. Never sent in this phase." />
-          {!dr ? (
-            <EmptyState compact title="Not dry-run yet" description={a.status === "PLANNED" ? "Runs automatically when the execute-after time is reached, or on demand." : "Only planned actions are dry-run."} />
-          ) : (
-            <div className="space-y-3 text-sm">
-              <div className={`rounded-lg border p-3 ${dr.wouldExecute ? "border-status-success/40 bg-status-success-bg" : "border-status-warning/40 bg-status-warning-bg"}`}>
-                <div className="text-base font-semibold">Would execute? {dr.wouldExecute ? "YES" : "NO"}</div>
-                <div className="text-xs">{dr.wouldExecute ? `${dr.operation === "ADOPT_EXISTING_ONETIME" ? "Would adopt the existing one-time" : "Would create the one-time"} on ${dr.targetChargeDate} · ${dr.timing === "DUE" ? "due now" : "scheduled"}` : `Blocking reason: ${dr.blockingReason}${dr.blockingDetail ? ` — ${dr.blockingDetail}` : ""}`}</div>
-                <div className="mt-1 text-[11px] text-muted-foreground">ran {formatDateTime(dr.ranAt, ctx.timezone)} · mode {dr.mode}</div>
-              </div>
-              <Row label="External subscription">{dr.external.read ? <>{dr.external.subscriptionStatus} · next charge <span className="font-mono text-xs">{dr.external.nextChargeDate ?? "—"}</span> · address <span className="font-mono text-xs">{dr.external.externalAddressId}</span></> : <span className="text-status-danger">read failed: {dr.external.error}</span>}</Row>
-              <Row label="Existing marker one-time">{dr.external.existingMarkerOnetime ? <span className="font-mono text-xs">{dr.external.existingMarkerOnetime.externalOnetimeId} · {dr.external.existingMarkerOnetime.nextChargeDate}</span> : "none on this address/date"}</Row>
-              <Row label="Lifetime deliveries">{dr.journey.lifetimeDeliveries} (customer, this programme)</Row>
-              <div>
-                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Intended operation (NOT sent)</div>
-                <pre className="overflow-x-auto rounded-lg bg-muted p-3 font-mono text-[11px] leading-relaxed">{JSON.stringify({ provider: dr.intendedOperation.provider, apiVersion: dr.intendedOperation.apiVersion, method: dr.intendedOperation.method, path: dr.intendedOperation.path, body: dr.intendedOperation.body, sent: dr.intendedOperation.sent }, null, 2)}</pre>
-                <p className="mt-1 text-xs text-muted-foreground">{dr.intendedOperation.note}</p>
-              </div>
-            </div>
-          )}
-        </div>
+        {stops.length > 0 ? <JourneyStrip stops={stops} trailing /> : null}
+        <p className="mt-4 max-w-2xl text-sm">{checkSentence}</p>
       </section>
 
-      <section className="mt-6 space-y-2">
-        <SectionHeader title="History" description="Every planner decision and dry run for this action." />
-        {activity.length === 0 ? <EmptyState compact title="No activity recorded" /> : (
-          <ol className="rounded-xl border border-border bg-card">
-            {activity.map((item, i) => (
-              <ActivityItem key={item.id} item={item} timeZone={ctx.timezone} last={i === activity.length - 1} />
+      <TechnicalDetails className="mb-6">
+        <TechRow label="Action">{a.id}</TechRow>
+        <TechRow label="Status (internal)">{a.status}{a.dryRun ? " (dry run)" : ""}</TechRow>
+        <TechRow label="Subscription">{a.subscription.externalSubscriptionId}</TechRow>
+        <TechRow label="Recharge address">{a.externalAddressId ?? a.subscription.externalAddressId}</TechRow>
+        <TechRow label="Programme / milestone">{a.programId ?? "none"} / {a.rewardScheduleMilestoneId ?? "none"}{a.milestone ? ` (${a.milestone.schedule.name}, cycle ${a.milestone.cycleNumber}, ${a.milestone.eligibilityScope})` : ""}</TechRow>
+        <TechRow label="Journey">{a.journeyId} at {a.journey.successfulCycles} cycles</TechRow>
+        <TechRow label="Target">cycle {a.targetCycle} on {a.targetChargeDate ?? "?"} (executeAfter {a.executeAfter?.toISOString() ?? "not set"})</TechRow>
+        <TechRow label="Reward / legacy marker">{a.rewardItem ? `${a.rewardItem.name} (${a.rewardItemId})` : "none"}{a.fulfillmentMarker ? ` / marker ${a.fulfillmentMarker.name} variant ${a.fulfillmentMarker.externalVariantId}` : ""}</TechRow>
+        {dr?.target ? <TechRow label="Fulfilment variant">{dr.target.externalVariantId} (product {dr.target.externalProductId ?? "?"}) {dr.target.title}</TechRow> : null}
+        <TechRow label="Idempotency">liveKey {a.liveKey ?? "freed"} / ownerKey {a.ownerKey ?? "freed"}</TechRow>
+        <TechRow label="External object">{a.externalObjectType && a.externalObjectId ? `${a.externalObjectType} ${a.externalObjectId} on ${a.externalChargeDate ?? "?"}` : "none"}</TechRow>
+        <TechRow label="Planner run">{a.plannerRun ? `${a.plannerRun.id} (${a.plannerRun.trigger}, ${formatDateTime(a.plannerRun.startedAt, ctx.timezone)})` : "none"}</TechRow>
+        <TechRow label="Planned / replans">{a.lastPlannedAt ? formatDateTime(a.lastPlannedAt, ctx.timezone) : "?"} / {a.replanCount}</TechRow>
+        <TechRow label="Last check (raw)">{a.lastDryRunAt ? `${a.lastDryRunAt.toISOString()} wouldExecute=${String(a.wouldExecute)}${a.blockingReason ? ` blocking=${a.blockingReason}` : ""}` : "never"}</TechRow>
+        {a.cancelReason ? <TechRow label="Cancel reason">{a.cancelReason}</TechRow> : null}
+        {a.lastError ? <TechRow label="Last error">{a.lastError}</TechRow> : null}
+        {dr ? (
+          <TechRow label="Intended payload">
+            <pre className="mt-1 max-h-64 overflow-auto rounded-lg bg-background p-3 text-[11.5px] leading-relaxed">{JSON.stringify(dr.intendedOperation, null, 2)}</pre>
+          </TechRow>
+        ) : null}
+      </TechnicalDetails>
+
+      <section>
+        <SectionHeader title="History" />
+        {activity.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nothing recorded yet.</p>
+        ) : (
+          <ol className="space-y-1">
+            {activity.map((e) => (
+              <ActivityItem key={e.id} item={e} timeZone={ctx.timezone} />
             ))}
           </ol>
         )}

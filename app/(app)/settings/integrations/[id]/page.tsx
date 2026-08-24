@@ -63,7 +63,7 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
         <PageHeader
           eyebrow={<Link href="/settings/integrations" className="hover:underline">Integrations</Link>}
           title={i.displayName}
-          description="Shopify — read-only catalogue access used to bind physical reward items (Whisk, Cup, Spoon…) to their existing variants. Never orders, customers, fulfilments or writes; Recharge remains the subscription authority."
+          description="Shopify provides catalogue access so each gift can link to the product that ships. The connection only reads. Recharge remains the subscription authority."
           meta={<StatusBadge status={integrationStatus[i.status]} size="md" />}
           actions={canManage ? <RecheckShopifyButton integrationId={i.id} /> : undefined}
         />
@@ -73,15 +73,15 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
             <DetailList>
               <DetailRow label="Shop">{settings?.store?.name ?? i.displayName}</DetailRow>
               <DetailRow label="myshopify domain"><span className="font-mono text-xs">{settings?.shopDomain ?? i.externalStoreId}</span></DetailRow>
-              <DetailRow label="Primary domain">{settings?.store?.primaryDomainHost ?? "—"}</DetailRow>
-              <DetailRow label="Currency / plan">{settings?.store?.currencyCode ?? "—"}{settings?.store?.planDisplayName ? " · " + settings.store.planDisplayName : ""}</DetailRow>
-              <DetailRow label="Admin API version">{settings?.apiVersion ?? "—"}</DetailRow>
-              <DetailRow label="Authentication">{settings?.authMode === "CLIENT_CREDENTIALS" ? "Client credentials (server-side token exchange)" : (settings?.authMode ?? "—")}</DetailRow>
-              <DetailRow label="Client ID"><span className="font-mono text-xs">{settings?.clientIdHint ?? "—"}</span></DetailRow>
+              <DetailRow label="Primary domain">{settings?.store?.primaryDomainHost ?? "none"}</DetailRow>
+              <DetailRow label="Currency / plan">{settings?.store?.currencyCode ?? "unknown"}{settings?.store?.planDisplayName ? ", " + settings.store.planDisplayName : ""}</DetailRow>
+              <DetailRow label="Admin API version">{settings?.apiVersion ?? "none"}</DetailRow>
+              <DetailRow label="Authentication">{settings?.authMode === "CLIENT_CREDENTIALS" ? "Client credentials (server-side token exchange)" : (settings?.authMode ?? "none")}</DetailRow>
+              <DetailRow label="Client ID"><span className="font-mono text-xs">{settings?.clientIdHint ?? "none"}</span></DetailRow>
               <DetailRow label="Client secret"><span className="font-mono text-xs">••••••••••••</span></DetailRow>
-              <DetailRow label="Access token">{i.accessTokenExpiresAt ? `ephemeral · auto-refreshes · current one expires ${formatRelative(i.accessTokenExpiresAt)}` : "obtained on first use"}</DetailRow>
+              <DetailRow label="Access token">{i.accessTokenExpiresAt ? `short lived, refreshes automatically, the current one expires ${formatRelative(i.accessTokenExpiresAt)}` : "obtained on first use"}</DetailRow>
               <DetailRow label="Serves Recharge store">{i.pairedIntegration ? <Link href={"/settings/integrations/" + i.pairedIntegration.id} className="hover:underline">{i.pairedIntegration.displayName}</Link> : <span className="text-status-warning">not paired</span>}</DetailRow>
-              <DetailRow label="Capabilities checked">{i.capabilitiesCheckedAt ? formatDateTime(i.capabilitiesCheckedAt, ctx.timezone) : "—"}</DetailRow>
+              <DetailRow label="Capabilities checked">{i.capabilitiesCheckedAt ? formatDateTime(i.capabilitiesCheckedAt, ctx.timezone) : "never"}</DetailRow>
               {i.lastErrorMessage ? <DetailRow label="Last error"><span className="text-status-danger">{i.lastErrorMessage}</span></DetailRow> : null}
             </DetailList>
           </div>
@@ -91,7 +91,7 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
           </div>
         </section>
         <section className="mt-6 space-y-3">
-          <SectionHeader title="Reward fulfilment products on this store" description="Each physical reward item binds to ONE existing Shopify variant; every programme milestone that awards the item resolves to that same variant. Verification re-reads the product — no Shopify write ever occurs." />
+          <SectionHeader title="Reward fulfilment products on this store" description="Each gift links to one existing Shopify product. Every journey that awards the gift uses that product, and verifying only reads it again." />
           <RewardBindingsTable rows={rows} canManage={canManage} />
         </section>
       </>
@@ -119,15 +119,15 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
 
       <MetricGrid>
         <Metric label="Subscriptions imported" value={formatNumber(stats.subscriptions)} hint={`${formatNumber(stats.active)} active · ${formatNumber(stats.inactive)} inactive`} href="/subscriptions" />
-        <Metric label="Active · mapped to a program" value={formatNumber(stats.mappedActive)} hint={stats.active ? `${Math.round((stats.mappedActive / stats.active) * 100)}% of active` : "—"} href="/subscriptions?mapping=MAPPED&status=ACTIVE" />
-        <Metric label="Active · unmapped" value={formatNumber(stats.unmappedActive)} tone={stats.unmappedActive > 0 ? "warning" : "default"} hint={stats.unmappedActive > 0 ? `${stats.unmappedProducts} product${stats.unmappedProducts === 1 ? "" : "s"} need a program` : "Everything is assigned"} href="/subscriptions?mapping=UNMAPPED&status=ACTIVE" />
+        <Metric label="Active and in a programme" value={formatNumber(stats.mappedActive)} hint={stats.active ? `${Math.round((stats.mappedActive / stats.active) * 100)}% of active` : undefined} href="/subscriptions?mapping=MAPPED&status=ACTIVE" />
+        <Metric label="Active but not in a programme" value={formatNumber(stats.unmappedActive)} tone={stats.unmappedActive > 0 ? "warning" : "default"} hint={stats.unmappedActive > 0 ? `${stats.unmappedProducts} product${stats.unmappedProducts === 1 ? "" : "s"} need a programme` : "Everything is assigned"} href="/subscriptions?mapping=UNMAPPED&status=ACTIVE" />
         <Metric label="Historical order lines" value={formatNumber(stats.orderLines)} hint={stats.unlinkedOrderLines > 0 ? `${formatNumber(stats.unlinkedOrderLines)} for subscriptions not imported` : `${formatNumber(stats.customers)} customers · ${formatNumber(stats.products)} products / ${formatNumber(stats.variants)} variants`} />
       </MetricGrid>
 
       <section className="grid gap-6 lg:grid-cols-2">
         <div className="space-y-3 rounded-xl border border-border bg-card p-5">
-          <SectionHeader title="Capabilities" description={`Probed empirically — what this token can actually read on this store's plan.${i.capabilitiesCheckedAt ? ` Checked ${formatRelative(i.capabilitiesCheckedAt)}.` : ""}`} />
-          <p className={`text-sm font-medium ${requiredOk ? "text-status-success" : "text-status-danger"}`}>{requiredOk ? "All features required by Subscription Ops are available." : "Some required capabilities are missing — rules cannot be activated until they are granted."}</p>
+          <SectionHeader title="Capabilities" description={`What this token can actually read on this store's plan, probed directly.${i.capabilitiesCheckedAt ? ` Checked ${formatRelative(i.capabilitiesCheckedAt)}.` : ""}`} />
+          <p className={`text-sm font-medium ${requiredOk ? "text-status-success" : "text-status-danger"}`}>{requiredOk ? "Everything Reloop needs is available." : "Some required capabilities are missing. Automation cannot run until they are granted."}</p>
           <div className="grid gap-4 sm:grid-cols-2">
             <ul className="space-y-1 text-sm">
               <li className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Required</li>
@@ -143,7 +143,7 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
               })}
             </ul>
             <ul className="space-y-1 text-sm text-muted-foreground">
-              <li className="text-[11px] font-semibold tracking-wide uppercase">Optional · never required</li>
+              <li className="text-[11px] font-semibold tracking-wide uppercase">Optional, never required</li>
               {OPTIONAL.map((c) => {
                 const v = caps?.[c.key];
                 const ok = v && v !== "unavailable" && v !== "unknown";
@@ -158,9 +158,9 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
           </div>
           <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
             <span className="font-medium">One-time products</span>
-            <span className="ml-2">Read {caps && caps.onetimes && caps.onetimes !== "unavailable" && caps.onetimes !== "unknown" ? <span className="text-status-success">✓</span> : <span className="text-status-danger">✗</span>}</span>
-            <span className="ml-3">Write {caps?.onetimes === "read_write" ? <span className="text-status-success">✓</span> : <span className="text-status-danger">Missing</span>}</span>
-            <span className="ml-2 block text-xs text-muted-foreground">{caps?.onetimes === "read_write" ? "write_subscriptions is granted — the Phase 6 controlled one-time write is possible (still requires an explicitly armed action; LIVE stays refused)." : "POST /onetimes needs the write_subscriptions permission on the Recharge token. Update the token's permissions in Recharge, then Test connection again — no write is attempted until granted."}</span>
+            <span className="ml-2">Read {caps && caps.onetimes && caps.onetimes !== "unavailable" && caps.onetimes !== "unknown" ? <span className="text-status-success">yes</span> : <span className="text-status-danger">no</span>}</span>
+            <span className="ml-3">Write {caps?.onetimes === "read_write" ? <span className="text-status-success">yes</span> : <span className="text-status-danger">missing</span>}</span>
+            <span className="ml-2 block text-xs text-muted-foreground">{caps?.onetimes === "read_write" ? "write_subscriptions is granted, so a single armed gift can be written when you approve one. Unrestricted live mode stays off." : "POST /onetimes needs the write_subscriptions permission on the Recharge token. Update the token's permissions in Recharge, then run Test connection again. No write is attempted until granted."}</span>
           </p>
           {settings?.notes && settings.notes.length > 0 && (
             <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">{settings.notes.map((n, idx) => <li key={idx}>{n}</li>)}</ul>
@@ -182,14 +182,14 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
           />
           <div className="grid gap-6 lg:grid-cols-2">
             <DetailList>
-              <DetailRow label="Client secret">{webhooks.clientSecretConfigured ? <span className="text-status-success">configured ✓ (encrypted)</span> : <span className="text-status-danger">missing — deliveries cannot be validated</span>}</DetailRow>
+              <DetailRow label="Client secret">{webhooks.clientSecretConfigured ? <span className="text-status-success">configured and encrypted</span> : <span className="text-status-danger">missing, so deliveries cannot be validated</span>}</DetailRow>
               <DetailRow label="Endpoint"><span className="font-mono text-xs">{webhooks.registration ? webhooks.registration.endpoint : webhooks.endpointPath}</span></DetailRow>
               <DetailRow label="Registered">{webhooks.registration ? `${formatDateTime(new Date(webhooks.registration.registeredAt), ctx.timezone)} · base ${webhooks.registration.baseUrl}` : "not registered yet"}</DetailRow>
               <DetailRow label="Topics">
                 <span className="flex flex-wrap gap-1">
                   {webhooks.expectedTopics.map((t) => {
                     const live = webhooks.registered?.some((w) => w.topic === t && (!webhooks.registration || w.address === webhooks.registration.endpoint));
-                    return <span key={t} className={`rounded px-1.5 py-0.5 font-mono text-[11px] ${live ? "bg-status-success-bg text-status-success" : "bg-muted text-muted-foreground"}`}>{t}{live ? " ✓" : ""}</span>;
+                    return <span key={t} className={`rounded px-1.5 py-0.5 font-mono text-[11px] ${live ? "bg-status-success-bg text-status-success" : "bg-muted text-muted-foreground"}`}>{t}{live ? " live" : ""}</span>;
                   })}
                 </span>
               </DetailRow>
@@ -207,8 +207,8 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
                   <TableBody>
                     {webhookEvents.map((e) => (
                       <TableRow key={e.id}>
-                        <TableCell className="font-mono text-xs">{e.eventType}{e.signatureValid ? "" : <span className="ml-1 text-status-danger">✗sig</span>}</TableCell>
-                        <TableCell className="font-mono text-xs">{e.externalEventId ?? "—"}</TableCell>
+                        <TableCell className="font-mono text-xs">{e.eventType}{e.signatureValid ? "" : <span className="ml-1 text-status-danger">bad signature</span>}</TableCell>
+                        <TableCell className="font-mono text-xs">{e.externalEventId ?? "none"}</TableCell>
                         <TableCell className="text-xs">{e.status.toLowerCase()}{e.lastError && e.status === "FAILED" ? <span className="block max-w-56 truncate text-[11px] text-status-danger" title={e.lastError}>{e.lastError}</span> : null}</TableCell>
                         <TableCell className="text-xs">{formatRelative(e.receivedAt)}{e.processedAt ? ` · done ${formatRelative(e.processedAt)}` : ""}</TableCell>
                         <TableCell className="tnum text-xs">{e.attemptCount}</TableCell>
@@ -226,7 +226,7 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
         <section className="space-y-3">
           <SectionHeader
             title="Automation"
-            description="The hard safety boundary for this store. Off: nothing is planned. Dry run: Ready rules are planned and dry-run against fresh data with a preview of the exact one-time we would create — nothing is written to Recharge. Live is not available in this phase."
+            description="The hard safety boundary for this store. When automation is off nothing is planned. In test mode gifts are planned and rehearsed against fresh data with a preview of the exact one-time, and nothing is written to Recharge. Live is not available yet."
             actions={hasRole(ctx, "ADMIN") ? <RunPlannerButton integrationId={i.id} disabled={i.automationMode === "OFF"} /> : undefined}
           />
           <AutomationModeControl integrationId={i.id} displayName={i.displayName} mode={i.automationMode} canManage={hasRole(ctx, "ADMIN")} />
@@ -249,7 +249,7 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
                         <TableCell className="tnum text-xs">{formatDateTime(r.startedAt, ctx.timezone)}</TableCell>
                         <TableCell className="text-xs">{r.trigger.toLowerCase()}</TableCell>
                         <TableCell className="text-xs">{r.automationMode}</TableCell>
-                        <TableCell className="text-xs">{r.status !== "COMPLETED" ? `${r.status}${r.error ? ` — ${r.error.slice(0, 80)}` : ""}` : c.skippedReason ? `skipped: ${String(c.skippedReason)}` : <span className="tnum">{c.subscriptionsEvaluated ?? 0} evaluated · {c.planned ?? 0} planned · {c.replanned ?? 0} replanned · {c.confirmed ?? 0} confirmed · {c.cancelled ?? 0} cancelled · {c.superseded ?? 0} superseded{Number(c.milestonesSkipped) > 0 ? ` · ${c.milestonesSkipped} milestone(s) not plannable` : ""}</span>}</TableCell>
+                        <TableCell className="text-xs">{r.status !== "COMPLETED" ? `${r.status}${r.error ? `. ${r.error.slice(0, 80)}` : ""}` : c.skippedReason ? `skipped: ${String(c.skippedReason)}` : <span className="tnum">{c.subscriptionsEvaluated ?? 0} evaluated, {c.planned ?? 0} planned, {c.replanned ?? 0} replanned, {c.confirmed ?? 0} confirmed, {c.cancelled ?? 0} cancelled, {c.superseded ?? 0} superseded{Number(c.milestonesSkipped) > 0 ? `, ${c.milestonesSkipped} not plannable` : ""}</span>}</TableCell>
                       </TableRow>
                     );
                   })}
@@ -264,7 +264,7 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
       ) : null}
 
       <section className="space-y-3">
-        <SectionHeader title="Cycle audit sample" description="Active, mapped subscriptions with the most history — compare each row with the order history in Recharge. 'Our cycle N' must equal the number of successful orders for that subscription's program journey." />
+        <SectionHeader title="Cycle audit sample" description="Active subscriptions with the most history, for comparing against the order history in Recharge. The delivery count here must equal the number of successful orders for the subscription." />
         {audit.length === 0 ? (
           <EmptyState compact title="Nothing to audit yet" description="Once subscriptions are imported and mapped to programs, a sample appears here." />
         ) : (
@@ -288,7 +288,7 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
                     <TableCell><Link href={`/subscriptions/${s.id}`} className="font-medium hover:underline">{customerName(s.customer)}</Link></TableCell>
                     <TableCell className="font-mono text-xs">{s.externalSubscriptionId}</TableCell>
                     <TableCell className="text-muted-foreground">{s.latestJourney?.program.name}{s.journeys.length > 1 ? <span className="ml-1 text-xs">(journey {s.journeys.length})</span> : null}</TableCell>
-                    <TableCell className="tnum text-right font-semibold">{s.latestJourney?.successfulCycles ?? "—"}</TableCell>
+                    <TableCell className="tnum text-right font-semibold">{s.latestJourney?.successfulCycles ?? "none"}</TableCell>
                     <TableCell className="tnum text-right">{s.latestJourney?.cycles.length ?? 0}</TableCell>
                     <TableCell className="tnum text-right">{s.orders.length}</TableCell>
                     <TableCell className="max-w-xs">
@@ -337,7 +337,7 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
                       <TableCell><StatusBadge status={{ label: s.status.toLowerCase(), tone: s.status === "COMPLETED" ? "success" : s.status === "FAILED" ? "danger" : s.status === "RUNNING" ? "info" : "neutral" }} /></TableCell>
                       <TableCell className="text-xs text-muted-foreground">{s.stage.toLowerCase()}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{formatDateTime(s.startedAt ?? s.createdAt, ctx.timezone)}</TableCell>
-                      <TableCell className="tnum text-xs text-muted-foreground">{dur === null ? "—" : dur < 60 ? `${dur}s` : `${Math.round(dur / 60)}m`}</TableCell>
+                      <TableCell className="tnum text-xs text-muted-foreground">{dur === null ? "none" : dur < 60 ? `${dur}s` : `${Math.round(dur / 60)}m`}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {s.kind === "RECALCULATE_JOURNEYS"
                           ? `${c.journeysProcessed ?? 0} subs · ${c.mapped ?? 0} mapped · ${c.unmapped ?? 0} unmapped`
@@ -358,7 +358,7 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
         <div className="border-t border-border px-5 py-4">
           <DetailList columns={3}>
             <DetailRow label="Store id / domain" mono>{i.externalStoreId}</DetailRow>
-            <DetailRow label="Store email">{settings?.store?.email ?? "—"}</DetailRow>
+            <DetailRow label="Store email">{settings?.store?.email ?? "none"}</DetailRow>
             <DetailRow label="Token scopes" mono>{settings?.scopes?.join(", ") ?? "not exposed"}</DetailRow>
             <DetailRow label="Integration id" mono>{i.id}</DetailRow>
           </DetailList>

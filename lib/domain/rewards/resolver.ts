@@ -32,13 +32,13 @@ export const MILESTONE_READINESS_LABEL: Record<MilestoneReadinessReason, string>
   SCHEDULE_NOT_READY: "Schedule is still a draft",
   SCHEDULE_ARCHIVED: "Schedule is archived",
   MILESTONE_INACTIVE: "Milestone is inactive",
-  INITIAL_CHECKOUT_NOT_PLANNED: "First-delivery reward: part of the checkout order, not planned by the renewal planner",
+  INITIAL_CHECKOUT_NOT_PLANNED: "The first delivery reward arrives with the checkout order and is never planned for a renewal",
   PROGRAM_INACTIVE: "Programme is inactive",
-  STORE_UNKNOWN: "Programme has no mapped products (store unknown) or spans several stores",
-  SHOPIFY_NOT_CONNECTED: "No Shopify catalogue connected/paired with the programme's store",
+  STORE_UNKNOWN: "The programme has no mapped products yet or spans several stores, so its store is unknown",
+  SHOPIFY_NOT_CONNECTED: "No Shopify catalogue is connected for the programme's store",
   REWARD_UNBOUND: "Reward item is not bound to a Shopify variant yet",
   BINDING_INACTIVE: "Reward binding was removed",
-  BINDING_VARIANT_MISSING: "Bound Shopify variant is missing or unavailable (re-verify / rebind)",
+  BINDING_VARIANT_MISSING: "The bound Shopify variant is missing or unavailable. Verify it again or choose a different product",
 };
 
 export type EffectiveMilestone = {

@@ -53,11 +53,11 @@ export function RegisterWebhooksControl({ integrationId, defaultBaseUrl, registe
   return (
     <span className="inline-flex items-center gap-1">
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger render={<span className="contents" />}><Button size="xs" variant="outline" disabled={!secretConfigured} title={secretConfigured ? undefined : "Set the client secret first — deliveries could not be validated"}><Radio data-icon="inline-start" /> {registered ? "Re-register" : "Register webhooks"}</Button></DialogTrigger>
+        <DialogTrigger render={<span className="contents" />}><Button size="xs" variant="outline" disabled={!secretConfigured} title={secretConfigured ? undefined : "Set the client secret first so deliveries can be validated"}><Radio data-icon="inline-start" /> {registered ? "Re-register" : "Register webhooks"}</Button></DialogTrigger>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Register Recharge webhooks</DialogTitle>
-            <DialogDescription>Subscribes order/created, order/processed and the four subscription topics, delivering to this platform&rsquo;s public https URL. Webhook payloads are treated as signals only — processing re-reads Recharge and runs the existing import/recalculation code. The 4-hourly incremental sync stays on as the backstop.</DialogDescription>
+            <DialogDescription>Subscribes order/created, order/processed and the four subscription topics, delivering to this platform&rsquo;s public https URL. Webhook payloads are treated as signals only. Processing reads Recharge again and runs the existing import code, and the incremental sync stays on as the backstop.</DialogDescription>
           </DialogHeader>
           <div className="space-y-1.5">
             <Label htmlFor="wh-base">Public base URL (https)</Label>
@@ -71,7 +71,7 @@ export function RegisterWebhooksControl({ integrationId, defaultBaseUrl, registe
               setError(null);
               const r = await registerWebhooks({ integrationId, baseUrl });
               if (!r.ok) { setError(r.error); return; }
-              toast.success(`Webhooks registered — ${r.data!.created.length} created, ${r.data!.kept.length} already correct`);
+              toast.success(`Webhooks registered. ${r.data!.created.length} created, ${r.data!.kept.length} already correct`);
               setOpen(false);
               router.refresh();
             })}>{busy ? "Registering…" : "Register"}</Button>

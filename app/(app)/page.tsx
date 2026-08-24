@@ -2,31 +2,32 @@ import Link from "next/link";
 import { ArrowRight, Plug } from "lucide-react";
 import { requireOrg } from "@/lib/auth/tenancy";
 import { getOverview } from "@/lib/domain/queries/overview";
-import { customerName, formatDateOnly, formatNumber } from "@/lib/format";
-import { actionStatus, exceptionSeverity } from "@/lib/status";
+import { customerName, formatNumber, formatRelative } from "@/lib/format";
+import { dryRunState, exceptionSeverity } from "@/lib/status";
 import { PageHeader, SectionHeader } from "@/components/layout/page-header";
 import { Metric, MetricGrid } from "@/components/data/metric";
 import { EmptyState } from "@/components/data/empty-state";
 import { StatusBadge } from "@/components/status/status-badge";
 import { Timeline } from "@/components/timeline/timeline";
 import { ActivityItem } from "@/components/timeline/activity-item";
+import { GiftRow } from "@/components/domain/gift-row";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export const metadata = { title: "Overview" };
 
 export default async function OverviewPage() {
   const ctx = await requireOrg();
-  const data = await getOverview(ctx);
+  const now = new Date();
+  const data = await getOverview(ctx, now);
 
-  if (!data.hasIntegration) {
+  if (!data.integration) {
     return (
       <>
-        <PageHeader title="Overview" description="Is your subscription automation healthy? Connect a platform to find out." />
+        <PageHeader title="Overview" description="Connect your subscription platform to get started." />
         <EmptyState
           icon={Plug}
-          title="Connect your first subscription platform"
-          description="Connect Recharge to import subscriptions, calculate delivery cycles and create your first fulfilment rule. The import is read-only — nothing is written until you activate a rule."
+          title="Connect Recharge"
+          description="Connecting imports your subscriptions and delivery history so Reloop can plan reward gifts. The import only reads. Nothing is written to Recharge until you turn automation on."
           action={
             <Button render={<Link href="/settings/integrations" />}>
               Connect Recharge <ArrowRight data-icon="inline-end" />
@@ -37,103 +38,100 @@ export default async function OverviewPage() {
     );
   }
 
-  const { metrics } = data;
+  const { integration, metrics } = data;
+  const healthSentence = [
+    integration.status === "CONNECTED" ? "Recharge is connected." : "Recharge needs attention.",
+    integration.lastSuccessfulSyncAt ? `Last synced ${formatRelative(integration.lastSuccessfulSyncAt, now)}.` : "",
+    integration.automationMode === "DRY_RUN"
+      ? "Automation is in test mode."
+      : integration.automationMode === "LIVE"
+        ? "Automation is live."
+        : "Automation is off.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const attentionCount = metrics.reviewCount + metrics.openExceptions;
+
   return (
     <>
-      <PageHeader title="Overview" description={`What the automation has done and is about to do for ${ctx.organizationName}.`} />
+      <PageHeader title="Overview" description={healthSentence} />
 
-      <MetricGrid>
-        <Metric label="Active subscriptions" value={formatNumber(metrics.activeSubscriptions)} href="/subscriptions?status=ACTIVE" />
-        <Metric label="Actions in the next 7 days" value={formatNumber(metrics.actionsNext7)} hint="Planned or attached markers" href="/upcoming" />
-        <Metric label="Successful actions · 30 days" value={formatNumber(metrics.succeeded30)} hint="Markers attached or fulfilled" href="/upcoming?status=ALL" />
-        <Metric
-          label="Open exceptions"
-          value={formatNumber(metrics.openExceptions)}
-          tone={metrics.openExceptions > 0 ? "danger" : "default"}
-          hint={metrics.openExceptions > 0 ? "Needs attention" : "Nothing needs you"}
-          href="/exceptions"
-        />
-      </MetricGrid>
-
-      {data.exceptions.length > 0 && (
-        <section className="space-y-3">
-          <SectionHeader
-            title="Exceptions requiring attention"
-            actions={
-              <Link href="/exceptions" className="text-xs font-medium text-primary hover:underline">
-                View all
-              </Link>
-            }
-          />
-          <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+      {attentionCount > 0 ? (
+        <section className="mb-6 overflow-hidden rounded-xl border border-status-danger/40 bg-card">
+          <header className="flex items-center justify-between border-b border-status-danger/30 px-4 py-2">
+            <h2 className="text-[11.5px] font-semibold tracking-wide text-status-danger uppercase">Needs attention</h2>
+            <span className="tnum text-[11.5px] text-muted-foreground">{attentionCount}</span>
+          </header>
+          <ul>
+            {data.reviewActions.map((a) => {
+              const state = dryRunState(a, now);
+              return (
+                <li key={a.id} className="border-b border-border last:border-0">
+                  <Link href={`/upcoming/${a.id}`} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/50 focus-visible:bg-accent/50 focus-visible:outline-none">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">{customerName(a.subscription.customer)}</span>
+                      <span className="block truncate text-[13px] text-muted-foreground">{state.description}</span>
+                    </span>
+                    <StatusBadge status={state} />
+                  </Link>
+                </li>
+              );
+            })}
             {data.exceptions.map((e) => (
-              <li key={e.id} className="flex items-start gap-3 px-4 py-3">
-                <StatusBadge status={exceptionSeverity[e.severity]} className="mt-0.5" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">{e.title}</div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {e.subscription ? `${customerName(e.subscription.customer)} · ${e.subscription.productTitleSnapshot} · ` : ""}
-                    {e.description}
-                  </div>
-                </div>
-                <Link href="/exceptions" className="shrink-0 text-xs font-medium text-primary hover:underline">
-                  Review
+              <li key={e.id} className="border-b border-border last:border-0">
+                <Link href="/activity?view=attention" className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/50 focus-visible:bg-accent/50 focus-visible:outline-none">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{e.title}</span>
+                    <span className="block truncate text-[13px] text-muted-foreground">
+                      {e.subscription ? `${customerName(e.subscription.customer)}. ` : ""}
+                      {e.description}
+                    </span>
+                  </span>
+                  <StatusBadge status={exceptionSeverity[e.severity]} />
                 </Link>
               </li>
             ))}
           </ul>
+          {attentionCount > data.reviewActions.length + data.exceptions.length ? (
+            <footer className="border-t border-border px-4 py-2">
+              <Link href="/upcoming?view=review" className="text-xs font-medium text-primary hover:underline">
+                View everything that needs review
+              </Link>
+            </footer>
+          ) : null}
         </section>
-      )}
+      ) : null}
 
-      <section className="space-y-3">
+      <MetricGrid>
+        <Metric label="Gifts in the next 7 days" value={formatNumber(metrics.giftsNext7)} hint="Scheduled or already added" href="/upcoming" />
+        <Metric label="Added in the last 30 days" value={formatNumber(metrics.added30)} hint="Gifts placed on renewals" href="/upcoming?view=added" />
+        <Metric label="Active subscriptions" value={formatNumber(metrics.activeSubscriptions)} hint="Imported from Recharge" href="/subscriptions?status=ACTIVE" />
+      </MetricGrid>
+
+      <section className="mt-6 space-y-3">
         <SectionHeader
-          title="Upcoming actions"
-          description="What the system expects to do next, in charge-date order."
+          title="Next gifts"
           actions={
             <Link href="/upcoming" className="text-xs font-medium text-primary hover:underline">
-              Open forecast
+              View the queue
             </Link>
           }
         />
-        {data.upcoming.length === 0 ? (
-          <EmptyState compact title="Nothing scheduled yet" description="Planned markers will appear here as subscriptions approach a rule's delivery cycle." />
+        {data.nextGifts.length === 0 ? (
+          <EmptyState compact title="No gifts queued" description="Gifts appear here as customers approach the next step of their reward journey." />
         ) : (
-          <div className="overflow-hidden rounded-xl border border-border bg-card">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Program</TableHead>
-                  <TableHead className="text-right">Cycle</TableHead>
-                  <TableHead>Action</TableHead>
-                  <TableHead>Charge date</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.upcoming.map((a) => (
-                  <TableRow key={a.id}>
-                    <TableCell>
-                      <Link href={`/subscriptions/${a.subscriptionId}`} className="font-medium hover:underline">
-                        {customerName(a.subscription.customer)}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{a.journey.program.name}</TableCell>
-                    <TableCell className="tnum text-right">{a.targetCycle}</TableCell>
-                    <TableCell>→ {a.rewardItem?.name ?? a.fulfillmentMarker?.name ?? "—"}</TableCell>
-                    <TableCell className="tnum">{formatDateOnly(a.targetChargeDate)}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={actionStatus[a.status]} />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <ul className="overflow-hidden rounded-xl border border-border bg-card">
+            {data.nextGifts.map((a) => (
+              <li key={a.id} className="border-b border-border last:border-0">
+                <GiftRow action={a} state={dryRunState(a, now)} />
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 
-      <section className="space-y-3">
+      <section className="mt-6 space-y-3">
         <SectionHeader
           title="Recent activity"
           actions={
@@ -143,7 +141,7 @@ export default async function OverviewPage() {
           }
         />
         {data.recentActivity.length === 0 ? (
-          <EmptyState compact title="No activity yet" description="Imports, rule changes and automation events will be recorded here." />
+          <EmptyState compact title="No activity yet" description="Imports, checks and gifts will be recorded here." />
         ) : (
           <div className="rounded-xl border border-border bg-card p-4">
             <Timeline>

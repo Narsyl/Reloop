@@ -8,7 +8,7 @@ const Row = ({ label, state, hint }: { label: string; state: "available" | "unav
       {hint ? <span className="ml-1 text-[11px] text-muted-foreground">({hint})</span> : null}
     </span>
     <span className={cn("text-xs font-medium", state === "available" ? "text-status-success" : state === "unavailable" ? "text-status-danger" : "text-muted-foreground")}>
-      {state === "available" ? "✓ available" : state === "unavailable" ? "✗ unavailable" : state === "not-granted" ? "not granted (optional)" : "Never requested"}
+      {state === "available" ? "available" : state === "unavailable" ? "unavailable" : state === "not-granted" ? "not granted (optional)" : "never requested"}
     </span>
   </li>
 );
@@ -21,13 +21,13 @@ export function ShopifyCapabilityPanel({ report, compact }: { report: ShopifyCap
         <div className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Requested (read-only, least privilege)</div>
         <ul className="divide-y divide-border rounded-lg border border-border px-3">
           <Row label="Store identity" state={report.storeIdentity} />
-          <Row label="Products read" state={report.productsRead} hint="required — search & verify reward variants" />
-          <Row label="Publications read" state={report.publicationsRead} hint="optional — Online Store hint" />
+          <Row label="Products read" state={report.productsRead} hint="required, used to search and verify gift products" />
+          <Row label="Publications read" state={report.publicationsRead} hint="optional, shows whether a product is on the Online Store" />
         </ul>
         <p className="mt-1 text-[11px] text-muted-foreground">
-          Scopes granted: {report.grantedScopes.join(", ") || "—"} · auth: {report.authMode === "CLIENT_CREDENTIALS" ? "client credentials (server-side token, auto-refresh)" : "access token"}
+          Scopes granted: {report.grantedScopes.join(", ") || "none"}. Auth: {report.authMode === "CLIENT_CREDENTIALS" ? "client credentials with a server side token that refreshes automatically" : "access token"}
         </p>
-        {report.unexpectedScopes.length > 0 ? <p className="mt-1 text-[11px] text-status-warning">Extra scopes granted but never used: {report.unexpectedScopes.join(", ")} — consider removing them from the app (least privilege).</p> : null}
+        {report.unexpectedScopes.length > 0 ? <p className="mt-1 text-[11px] text-status-warning">Extra scopes granted but never used: {report.unexpectedScopes.join(", ")}. Consider removing them from the app.</p> : null}
         {report.missingScopes.length > 0 ? <p className="mt-1 text-[11px] text-status-danger">Missing: {report.missingScopes.join(", ")}</p> : null}
       </div>
       <div>

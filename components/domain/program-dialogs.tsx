@@ -39,7 +39,7 @@ export function CreateProgramDialog({ disabled, trigger }: { disabled?: boolean;
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>New subscription program</DialogTitle>
-          <DialogDescription>A program groups the products and variants that share one delivery-cycle journey — e.g. “Morning Magic Powder” for every size of the powder. Rules target programs, so you can change which products belong later without rebuilding rules.</DialogDescription>
+          <DialogDescription>A programme groups the products and variants that share one reward journey, for example Morning Magic Powder covering every size. You can change which products belong later.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
@@ -86,7 +86,7 @@ export function AssignProductDialog({
     start(async () => {
       const res = await assignProductToProgram({ programId, productId: product.id, variantIds: mode === "ALL" ? "ALL" : selected });
       if (!res.ok) return setError(res.error);
-      toast.success("Mapped — journeys are being recalculated");
+      toast.success("Added to the programme. Journeys are being recalculated.");
       setOpen(false);
       setSelected([]);
       router.refresh();
@@ -122,14 +122,14 @@ export function AssignProductDialog({
                 <input type="radio" name="mode" className="mt-1" checked={mode === "ALL"} onChange={() => setMode("ALL")} disabled={product.variants.some((v) => v.mappedTo) || !!product.allMappedTo} />
                 <span>
                   All variants <span className="text-muted-foreground">(including any added later)</span>
-                  {product.variants.some((v) => v.mappedTo) && <span className="block text-xs text-status-warning">Not available while variant-specific mappings exist — remove those first.</span>}
+                  {product.variants.some((v) => v.mappedTo) && <span className="block text-xs text-status-warning">Not available while single variant assignments exist. Remove those first.</span>}
                 </span>
               </label>
               <label className="flex items-start gap-2 text-sm">
                 <input type="radio" name="mode" className="mt-1" checked={mode === "VARIANTS"} onChange={() => setMode("VARIANTS")} disabled={!!product.allMappedTo} />
                 <span>
                   Specific variants
-                  {product.allMappedTo && <span className="block text-xs text-status-warning">Not available while an all-variants mapping exists — remove it first.</span>}
+                  {product.allMappedTo && <span className="block text-xs text-status-warning">Not available while an all variants assignment exists. Remove it first.</span>}
                 </span>
               </label>
               {mode === "VARIANTS" && (
@@ -187,7 +187,7 @@ export function RemoveMappingButton({ mappingId, label }: { mappingId: string; l
         if (r.ok) router.refresh();
         return r;
       }}
-      successMessage="Mapping removed — recalculating journeys"
+      successMessage="Removed from the programme. Journeys are being recalculated."
     />
   );
 }

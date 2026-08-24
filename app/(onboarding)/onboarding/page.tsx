@@ -1,4 +1,6 @@
 import Link from "next/link";
+import Image from "next/image";
+import relooplogo from "@/app/relooplogo-trimmed.png";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth/session";
 import { listMemberships } from "@/lib/auth/tenancy";
@@ -21,9 +23,8 @@ export default async function OnboardingPage({ searchParams }: PageProps<"/onboa
   return (
     <div className="flex min-h-screen flex-col bg-surface">
       <header className="flex h-14 items-center justify-between px-6">
-        <span className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-          <span className="flex size-6 items-center justify-center rounded-md bg-primary text-[11px] font-bold text-primary-foreground">S</span>
-          Subscription Ops
+        <span className="flex items-center">
+          <Image src={relooplogo} alt="Reloop" className="h-7 w-auto object-contain" priority />
         </span>
         <span className="text-xs text-muted-foreground">{session.user.email}</span>
       </header>
@@ -33,7 +34,7 @@ export default async function OnboardingPage({ searchParams }: PageProps<"/onboa
             <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Step 1 of 2</p>
             <h1 className="text-lg font-semibold tracking-tight">{creatingAnother ? "Create another organisation" : "Set up your organisation"}</h1>
             <p className="text-sm text-muted-foreground">
-              An organisation is your business workspace. Subscriptions, rules and history all belong to it. You can connect your subscription platform once it exists.
+              An organisation is your business workspace. Subscriptions, reward journeys and history all belong to it. You can connect your subscription platform once it exists.
             </p>
           </div>
           <form action={createOrganizationAndContinue} className="space-y-4">

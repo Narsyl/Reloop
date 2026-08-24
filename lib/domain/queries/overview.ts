@@ -11,45 +11,68 @@ export const getNavCounts = cache(async (ctx: Ctx) => {
   return { openExceptions };
 });
 
+const ACTION_INCLUDE = {
+  subscription: { include: { customer: true } },
+  journey: { include: { program: true } },
+  rewardItem: { select: { id: true, name: true } },
+  fulfillmentMarker: true,
+} as const;
+
+/** Actions whose latest rehearsal failed, or that failed outright. Mirrors the Upcoming "Needs review" definition. */
+const REVIEW_WHERE = {
+  OR: [{ status: "FAILED" as const }, { status: "PLANNED" as const, wouldExecute: false }],
+};
+
 export async function getOverview(ctx: Ctx, now = new Date()) {
   const db = dbFor(ctx);
   const in7 = new Date(now.getTime() + 7 * 86_400_000);
   const ago30 = new Date(now.getTime() - 30 * 86_400_000);
 
-  const [integrations, activeSubscriptions, actionsNext7, succeeded30, openExceptions, upcoming, recentActivity, exceptions] =
+  const [integration, activeSubscriptions, giftsNext7, added30, reviewCount, openExceptions, reviewActions, exceptions, nextGifts, recentActivity] =
     await Promise.all([
-      db.integration.count({ where: { status: { not: "DISCONNECTED" } } }),
+      db.integration.findFirst({
+        where: { status: { not: "DISCONNECTED" } },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, provider: true, status: true, automationMode: true, lastSuccessfulSyncAt: true },
+      }),
       db.subscription.count({ where: { status: "ACTIVE" } }),
       db.automationAction.count({
         where: { status: { in: ["PLANNED", "EXECUTING", "ATTACHED"] }, targetChargeAt: { gte: now, lte: in7 } },
       }),
       db.automationAction.count({ where: { status: { in: ["ATTACHED", "FULFILLED"] }, executedAt: { gte: ago30 } } }),
+      db.automationAction.count({ where: REVIEW_WHERE }),
       db.exception.count({ where: { status: "OPEN" } }),
       db.automationAction.findMany({
-        where: { status: { in: ["PLANNED", "EXECUTING", "ATTACHED", "FAILED"] }, targetChargeAt: { gte: new Date(now.getTime() - 86_400_000) } },
+        where: REVIEW_WHERE,
         orderBy: [{ targetChargeAt: "asc" }],
-        take: 8,
-        include: {
-          subscription: { include: { customer: true } },
-          journey: { include: { program: true } },
-          rewardItem: { select: { id: true, name: true } },
-          fulfillmentMarker: true,
-        },
+        take: 3,
+        include: ACTION_INCLUDE,
       }),
-      db.activityLog.findMany({ orderBy: { createdAt: "desc" }, take: 10 }),
       db.exception.findMany({
         where: { status: "OPEN" },
         orderBy: [{ severity: "desc" }, { detectedAt: "desc" }],
-        take: 5,
+        take: 3,
         include: { subscription: { include: { customer: true } } },
       }),
+      db.automationAction.findMany({
+        where: {
+          status: { in: ["PLANNED", "EXECUTING", "ATTACHED"] },
+          NOT: { status: "PLANNED", wouldExecute: false },
+          targetChargeAt: { gte: new Date(now.getTime() - 86_400_000) },
+        },
+        orderBy: [{ targetChargeAt: "asc" }],
+        take: 6,
+        include: ACTION_INCLUDE,
+      }),
+      db.activityLog.findMany({ orderBy: { createdAt: "desc" }, take: 6 }),
     ]);
 
   return {
-    hasIntegration: integrations > 0,
-    metrics: { activeSubscriptions, actionsNext7, succeeded30, openExceptions },
-    upcoming,
-    recentActivity,
+    integration,
+    metrics: { activeSubscriptions, giftsNext7, added30, reviewCount, openExceptions },
+    reviewActions,
     exceptions,
+    nextGifts,
+    recentActivity,
   };
 }

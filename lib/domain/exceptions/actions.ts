@@ -42,7 +42,7 @@ export async function resolveException(input: unknown): Promise<ActionResult> {
     summary: `${outcome === "RESOLVED" ? "Resolved" : "Ignored"} exception: ${existing.title}`,
     metadata: note ? { note } : undefined,
   });
-  revalidatePath("/exceptions");
+  revalidatePath("/activity");
   revalidatePath("/");
   return { ok: true };
 }

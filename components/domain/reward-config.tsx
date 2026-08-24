@@ -44,7 +44,7 @@ export function RewardItemDialog({ initial, trigger }: { initial?: { id: string;
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{initial ? "Edit reward item" : "New reward item"}</DialogTitle>
-          <DialogDescription>What physically happens at a milestone — e.g. Whisk, Cup, Spoon, sample sachet. No stock or pricing: operator meaning and audit only.</DialogDescription>
+          <DialogDescription>The gift itself, for example the Whisk, the Cup or a sample sachet. No stock or pricing lives here.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
@@ -99,12 +99,12 @@ export function ScheduleDialog({ initial, trigger }: { initial?: { id: string; n
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{initial ? "Edit reward schedule" : "New reward schedule"}</DialogTitle>
-          <DialogDescription>A reusable list of milestones (delivery number → reward). Many programmes can share one schedule; each programme keeps its own lifecycle and reward history.</DialogDescription>
+          <DialogDescription>Which delivery brings which gift. Many programmes can share one journey, and each keeps its own customer history.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="sc-name">Name</Label>
-            <Input id="sc-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Schedule A — Whisk at 2, Cup at 3" />
+            <Input id="sc-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Whisk with the 2nd delivery, Cup with the 3rd" />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="sc-desc">Description</Label>
@@ -133,7 +133,7 @@ export function ScheduleStatusControls({ id, name, status, programs }: { id: str
         <ConfirmationDialog
           trigger={<Button size="sm">Mark ready</Button>}
           title={`Mark "${name}" ready?`}
-          impact={`Ready means the configuration is signed off: the dry-run planner will plan this schedule's renewal milestones for ${programs} programme(s) — only where the milestone's reward item is bound to a verified Shopify variant for the programme's store. Nothing is written to the subscription platform in this phase; initial-checkout milestones are never planned.`}
+          impact={`Ready means the journey is signed off. The planner will schedule its gifts for ${programs === 1 ? "1 programme" : `${programs} programmes`}, only where the gift is linked to a verified Shopify product. Nothing is written to Recharge in test mode, and checkout gifts are never planned.`}
           confirmLabel="Mark ready"
           onConfirm={change("READY")}
           successMessage="Schedule is ready"
@@ -192,14 +192,14 @@ export function MilestoneDialog({ scheduleId, items, initial, trigger }: { sched
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{initial?.id ? "Edit milestone" : "Add milestone"}</DialogTitle>
-          <DialogDescription>Delivery number → reward item. Delivery 1 is an initial-checkout milestone (recorded, never planned by the renewal planner); later deliveries are planned before the charge.</DialogDescription>
+          <DialogDescription>Choose the delivery and the gift it brings. The first delivery can only carry a checkout gift, which ships with the order the customer placed. Later gifts are added to the renewal before it charges.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="ms-cycle">Delivery number</Label>
               <Input id="ms-cycle" type="number" min={1} max={60} value={form.cycleNumber} onChange={(e) => setForm({ ...form, cycleNumber: e.target.value === "" ? "" : Number(e.target.value) })} />
-              {mode ? <p className="text-xs text-muted-foreground">{mode === "INITIAL_CHECKOUT" ? "Initial checkout — part of the first order by construction." : "Upcoming renewal — planned before the charge."}</p> : null}
+              {mode ? <p className="text-xs text-muted-foreground">{mode === "INITIAL_CHECKOUT" ? "Ships with the first order the customer placed." : "Added to the renewal before it charges."}</p> : null}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="ms-item">Reward item</Label>

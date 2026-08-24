@@ -70,17 +70,17 @@ export function ExceptionCard({ item, timeZone, canResolve }: { item: ExceptionC
                 <dt className="inline">Subscription: </dt>
                 <dd className="inline">
                   <Link href={`/subscriptions/${item.subscription.id}`} className="text-foreground hover:underline">
-                    {item.subscription.customerLabel} · {item.subscription.productTitleSnapshot}
+                    {item.subscription.customerLabel}, {item.subscription.productTitleSnapshot}
                   </Link>
                 </dd>
               </div>
             )}
             {item.action && (
               <div>
-                <dt className="inline">Action: </dt>
+                <dt className="inline">Gift: </dt>
                 <dd className="inline text-foreground">
-                  {item.action.markerName} · cycle {item.action.targetCycle}
-                  {item.action.targetChargeDate ? ` · ${item.action.targetChargeDate}` : ""}
+                  {item.action.markerName}, delivery {item.action.targetCycle}
+                  {item.action.targetChargeDate ? `, renewing ${item.action.targetChargeDate}` : ""}
                 </dd>
               </div>
             )}

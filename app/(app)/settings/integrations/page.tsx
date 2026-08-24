@@ -76,7 +76,7 @@ export default async function IntegrationsPage() {
                     {i.externalStoreId} · {i.lastSuccessfulSyncAt ? `last synced ${formatRelative(i.lastSuccessfulSyncAt)}` : "not synced yet"} · {pluralize(i._count.subscriptions, "subscription")}, {pluralize(i._count.products, "product")}, {pluralize(i._count.customers, "customer")}
                   </div>
                   <div className={`text-xs font-medium ${requiredOk ? "text-status-success" : "text-status-danger"}`}>
-                    {requiredOk ? "All features required by Subscription Ops are available." : "Some required capabilities are missing."}
+                    {requiredOk ? "Everything Reloop needs is available." : "Some required capabilities are missing."}
                     {i.capabilitiesCheckedAt && <span className="font-normal text-muted-foreground"> Checked {formatRelative(i.capabilitiesCheckedAt)}.</span>}
                   </div>
                   {i.lastErrorMessage && <div className="text-xs text-status-danger">Last error: {i.lastErrorMessage} ({formatDateTime(i.lastErrorAt, ctx.timezone)})</div>}
@@ -115,10 +115,10 @@ export default async function IntegrationsPage() {
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <Link href={`/settings/integrations/${i.id}`} className="text-sm font-semibold hover:underline">{i.displayName}</Link>
-                    <span className="text-xs text-muted-foreground">Shopify · catalogue + markers only</span>
+                    <span className="text-xs text-muted-foreground">Shopify, catalogue only</span>
                     <StatusBadge status={integrationStatus[i.status]} />
                   </div>
-                  <div className="text-xs text-muted-foreground">{settings?.shopDomain ?? i.externalStoreId} · serves {paired ? paired.displayName : "no Recharge store (pair it)"} · {pluralize(i._count.rewardBindings, "marker")} verified here{i.capabilitiesCheckedAt ? ` · checked ${formatRelative(i.capabilitiesCheckedAt)}` : ""}</div>
+                  <div className="text-xs text-muted-foreground">{settings?.shopDomain ?? i.externalStoreId} · serves {paired ? paired.displayName : "no Recharge store (pair it)"}, {pluralize(i._count.rewardBindings, "gift")} verified here{i.capabilitiesCheckedAt ? ` · checked ${formatRelative(i.capabilitiesCheckedAt)}` : ""}</div>
                   {i.lastErrorMessage && <div className="text-xs text-status-danger">Last error: {i.lastErrorMessage} ({formatDateTime(i.lastErrorAt, ctx.timezone)})</div>}
                 </div>
               </div>

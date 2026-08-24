@@ -72,7 +72,7 @@ export function ConnectRechargeDialog({ disabled }: { disabled?: boolean }) {
         setError(res.error);
         return;
       }
-      toast.success("Recharge connected — read-only import started");
+      toast.success("Recharge connected. The import has started and only reads.");
       setOpen(false);
       reset();
       router.push(`/settings/integrations/${res.data!.integrationId}`);
@@ -93,8 +93,8 @@ export function ConnectRechargeDialog({ disabled }: { disabled?: boolean }) {
         <DialogHeader>
           <DialogTitle>Connect Recharge</DialogTitle>
           <DialogDescription>
-            Create an API token in Recharge with <span className="font-medium text-foreground">Customers, Products, Orders, Store information — view</span> and{" "}
-            <span className="font-medium text-foreground">Subscriptions — view &amp; manage</span>. No premium Recharge features are needed. We test the token before saving it, and the first import is read-only.
+            Create an API token in Recharge with <span className="font-medium text-foreground">Customers, Products, Orders and Store information set to view</span> and{" "}
+            <span className="font-medium text-foreground">Subscriptions set to view and manage</span>. No premium Recharge features are needed. We test the token before saving it, and the first import only reads.
           </DialogDescription>
         </DialogHeader>
 
@@ -104,7 +104,7 @@ export function ConnectRechargeDialog({ disabled }: { disabled?: boolean }) {
             <Input id="rc-token" type="password" autoComplete="off" value={apiToken} onChange={(e) => { setApiToken(e.target.value); setResult(null); }} placeholder="sk_…" />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="rc-secret">API client secret <span className="text-muted-foreground">(optional — only needed later for webhook verification; leave blank if you don&apos;t have it)</span></Label>
+            <Label htmlFor="rc-secret">API client secret <span className="text-muted-foreground">(optional, used later for webhook verification; leave blank if you don&apos;t have it)</span></Label>
             <Input id="rc-secret" type="password" autoComplete="off" value={clientSecret} onChange={(e) => { setClientSecret(e.target.value); setResult(null); }} />
           </div>
           <p className="text-xs text-muted-foreground">Credentials are encrypted before storage and only ever decrypted on the server for this organisation.</p>
@@ -124,7 +124,7 @@ export function ConnectRechargeDialog({ disabled }: { disabled?: boolean }) {
                   {result.store.timezone ? ` · ${result.store.timezone}` : ""}
                 </div>
                 <div className={cn("mt-1 text-xs font-medium", result.requiredOk ? "text-status-success" : "text-status-danger")}>
-                  {result.requiredOk ? "All features required by Subscription Ops are available." : "Some required access is missing — fix the token permissions and test again."}
+                  {result.requiredOk ? "Everything Reloop needs is available." : "Some required access is missing. Fix the token permissions and test again."}
                 </div>
               </div>
             </div>

@@ -18,8 +18,8 @@ export function DryRunButton({ actionId, disabled, size = "sm", label = "Dry run
         return;
       }
       const d = r.data!;
-      if (d.wouldExecute) toast.success(`Dry run: would ${d.operation === "ADOPT_EXISTING_ONETIME" ? "adopt the existing one-time" : "create the one-time"} on ${d.targetChargeDate} — nothing was sent`);
-      else toast.message(`Dry run: would NOT execute — ${d.blockingReason}${d.blockingDetail ? ` (${d.blockingDetail})` : ""}`);
+      if (d.wouldExecute) toast.success(`Check passed. The gift would be ${d.operation === "ADOPT_EXISTING_ONETIME" ? "adopted from the existing one-time" : "added"} on ${d.targetChargeDate}, and nothing was sent`);
+      else toast.message(`Check blocked: ${d.blockingReason}${d.blockingDetail ? ` (${d.blockingDetail})` : ""}`);
       router.refresh();
     });
   }

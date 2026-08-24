@@ -4,8 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity,
-  AlertTriangle,
-  Boxes,
   CalendarClock,
   LayoutDashboard,
   Repeat,
@@ -24,14 +22,12 @@ export function SidebarNav({ counts = {} }: { counts?: NavCounts }) {
 
   const primary: Item[] = [
     { href: "/", label: "Overview", icon: LayoutDashboard, exact: true },
-    { href: "/subscriptions", label: "Subscriptions", icon: Repeat },
     { href: "/upcoming", label: "Upcoming", icon: CalendarClock },
+    { href: "/subscriptions", label: "Subscriptions", icon: Repeat },
     { href: "/rewards", label: "Rewards", icon: Gift },
-    { href: "/products", label: "Products", icon: Boxes },
   ];
   const secondary: Item[] = [
-    { href: "/activity", label: "Activity", icon: Activity },
-    { href: "/exceptions", label: "Exceptions", icon: AlertTriangle, badge: counts.openExceptions },
+    { href: "/activity", label: "Activity", icon: Activity, badge: counts.openExceptions },
   ];
 
   const isActive = (item: Item) =>
@@ -75,7 +71,7 @@ export function SidebarSettingsLink() {
   const active = pathname.startsWith("/settings");
   return (
     <Link
-      href="/settings/general"
+      href="/settings/integrations"
       aria-current={active ? "page" : undefined}
       className={cn(
         "flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] font-medium transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",

@@ -39,7 +39,7 @@ export function AutomationModeControl({ integrationId, displayName, mode, canMan
           if (r.ok) router.refresh();
           return r;
         }}
-        successMessage={value === "DRY_RUN" ? "Dry run enabled — planner queued" : "Automation off"}
+        successMessage={value === "DRY_RUN" ? "Test mode enabled and the planner queued" : "Automation off"}
       />
     );
   };
