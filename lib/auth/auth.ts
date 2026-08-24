@@ -17,6 +17,9 @@ export const auth = betterAuth({
   appName: "Subscription Ops",
   baseURL: process.env.BETTER_AUTH_URL,
   secret: process.env.BETTER_AUTH_SECRET,
+  // The apex redirects to www; trust both so sign-in works regardless of which
+  // host the request arrives on (BETTER_AUTH_URL covers only its own origin).
+  trustedOrigins: ["https://reloopos.com", "https://www.reloopos.com"],
   database: prismaAdapter(prisma, { provider: "postgresql" }),
   emailAndPassword: {
     enabled: true,
