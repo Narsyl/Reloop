@@ -37,27 +37,23 @@ export async function getSubscriptionTrends(ctx: Ctx, days: 7 | 30, now = new Da
     db.subscription.count({ where: { externalCreatedAt: { gte: prevStart, lt: start } } }),
     db.subscription.count({ where: { cancelledAt: { gte: start, lte: now } } }),
     db.subscription.count({ where: { cancelledAt: { gte: prevStart, lt: start } } }),
-    db.subscription.groupBy({
-      by: ["productTitleSnapshot"],
+    db.subscription.findMany({
       where: { status: "ACTIVE" },
-      _count: { _all: true },
-      orderBy: { _count: { productTitleSnapshot: "desc" } },
+      select: { productTitleSnapshot: true, latestJourney: { select: { program: { select: { name: true } } } } },
     }),
   ]);
-  // Titles that differ only by a trailing size or pack suffix, e.g. "(240g)",
-  // are the same product to a merchant, so merge them under the base name.
+  // One line per product family. Subscriptions in a programme group under the
+  // programme name, which is where families like Shilajit or Morning Magic are
+  // already defined. Anything outside a programme groups by its product title
+  // with trailing size suffixes such as "(240g)" stripped.
   const merged = new Map<string, { title: string; count: number }>();
-  for (const p of byProduct) {
-    let base = p.productTitleSnapshot.trim();
+  for (const s of byProduct) {
+    let base = s.latestJourney?.program.name ?? s.productTitleSnapshot.trim();
     while (/\s*\([^)]*\)$/.test(base)) base = base.replace(/\s*\([^)]*\)$/, "").trim();
     const key = base.toLowerCase();
     const row = merged.get(key);
-    if (row) {
-      row.count += p._count._all;
-      if (base.length < row.title.length) row.title = base;
-    } else {
-      merged.set(key, { title: base, count: p._count._all });
-    }
+    if (row) row.count += 1;
+    else merged.set(key, { title: base, count: 1 });
   }
   return {
     days,
