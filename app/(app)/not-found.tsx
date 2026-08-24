@@ -9,7 +9,7 @@ export default function NotFound() {
       icon={SearchX}
       title="Not found"
       description="That record doesn't exist in this organisation, or you don't have access to it."
-      action={<Button variant="outline" render={<Link href="/" />}>Back to overview</Button>}
+      action={<Button variant="outline" render={<Link href="/overview" />}>Back to overview</Button>}
     />
   );
 }

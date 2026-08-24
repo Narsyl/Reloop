@@ -31,7 +31,7 @@ export function OrgSwitcher({ current, options }: { current: OrgOption; options:
         toast.error(res.error);
         return;
       }
-      router.push("/");
+      router.push("/overview");
       router.refresh();
     });
   }

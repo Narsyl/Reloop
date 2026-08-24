@@ -17,7 +17,7 @@ export default async function OnboardingPage({ searchParams }: PageProps<"/onboa
   const params = await searchParams;
   const memberships = await listMemberships();
   const creatingAnother = params.new === "1";
-  if (memberships.length > 0 && !creatingAnother) redirect("/");
+  if (memberships.length > 0 && !creatingAnother) redirect("/overview");
   const error = typeof params.error === "string" ? params.error : null;
 
   return (
@@ -76,7 +76,7 @@ export default async function OnboardingPage({ searchParams }: PageProps<"/onboa
             )}
             <div className="flex items-center justify-between gap-3 pt-1">
               {creatingAnother ? (
-                <Button variant="ghost" render={<Link href="/" />}>Cancel</Button>
+                <Button variant="ghost" render={<Link href="/overview" />}>Cancel</Button>
               ) : <span />}
               <Button type="submit">Create organisation</Button>
             </div>

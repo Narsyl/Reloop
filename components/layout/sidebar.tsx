@@ -21,7 +21,7 @@ export function SidebarNav({ counts = {} }: { counts?: NavCounts }) {
   const pathname = usePathname();
 
   const primary: Item[] = [
-    { href: "/", label: "Overview", icon: LayoutDashboard, exact: true },
+    { href: "/overview", label: "Overview", icon: LayoutDashboard },
     { href: "/upcoming", label: "Upcoming", icon: CalendarClock },
     { href: "/subscriptions", label: "Subscriptions", icon: Repeat },
     { href: "/rewards", label: "Rewards", icon: Gift },

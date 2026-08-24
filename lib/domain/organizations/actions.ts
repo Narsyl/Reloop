@@ -80,7 +80,7 @@ export async function createOrganizationAndContinue(formData: FormData) {
   if (!result.ok) {
     redirect(`/onboarding?error=${encodeURIComponent(result.error)}`);
   }
-  redirect("/");
+  redirect("/overview");
 }
 
 export async function switchOrganization(organizationId: string): Promise<ActionResult> {

@@ -27,7 +27,7 @@ export default function LoginPage() {
       setError(res.error.message ?? "Sign in failed. Check your email and password.");
       return;
     }
-    router.push("/");
+    router.push("/overview");
     router.refresh();
   }
 

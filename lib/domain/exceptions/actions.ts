@@ -43,6 +43,6 @@ export async function resolveException(input: unknown): Promise<ActionResult> {
     metadata: note ? { note } : undefined,
   });
   revalidatePath("/activity");
-  revalidatePath("/");
+  revalidatePath("/overview");
   return { ok: true };
 }

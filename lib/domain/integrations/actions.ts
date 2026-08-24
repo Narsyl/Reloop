@@ -149,7 +149,7 @@ export async function connectRecharge(input: unknown): Promise<ActionResult<{ in
   const sync = await createSyncRun(ctx, integrationId, "INITIAL");
   await inngest.send(integrationSyncRequested.create({ syncId: sync.id, integrationId, organizationId: ctx.organizationId }));
   revalidatePath("/settings/integrations");
-  revalidatePath("/");
+  revalidatePath("/overview");
   return { ok: true, data: { integrationId, syncId: sync.id } };
 }
 
@@ -222,6 +222,6 @@ export async function disconnectIntegration(integrationId: string): Promise<Acti
   await db.integrationSync.updateMany({ where: { integrationId, status: { in: ["QUEUED", "RUNNING"] } }, data: { status: "CANCELLED", finishedAt: new Date(), error: "Integration disconnected" } });
   await logActivity(ctx, { actorType: "USER", actorId: ctx.userId, eventType: "INTEGRATION_DISCONNECTED", entityType: "INTEGRATION", entityId: integrationId, summary: `Recharge disconnected — ${integration.displayName}. Credentials removed; imported data retained.` });
   revalidatePath("/settings/integrations");
-  revalidatePath("/");
+  revalidatePath("/overview");
   return { ok: true };
 }

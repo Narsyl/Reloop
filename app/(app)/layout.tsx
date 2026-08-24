@@ -28,7 +28,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     <div className="flex min-h-screen">
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
         <div className="flex h-16 items-center justify-center px-2">
-          <Link href="/" className="flex items-center justify-center text-sidebar-foreground">
+          <Link href="/overview" className="flex items-center justify-center text-sidebar-foreground">
             <Image src={relooplogo} alt="Reloop" className="h-11 w-auto object-contain" priority />
           </Link>
         </div>
@@ -43,7 +43,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-4 border-b border-border bg-background/80 px-4 backdrop-blur md:px-8">
           <div className="flex items-center gap-3 md:hidden">
-            <Link href="/" className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+            <Link href="/overview" className="flex items-center gap-2 text-sm font-semibold tracking-tight">
               <Image src={relooplogo} alt="Reloop" className="h-7 w-auto object-contain" priority />
               {ctx.organizationName}
             </Link>
