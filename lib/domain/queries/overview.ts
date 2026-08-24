@@ -23,6 +23,38 @@ const REVIEW_WHERE = {
   OR: [{ status: "FAILED" as const }, { status: "PLANNED" as const, wouldExecute: false }],
 };
 
+/**
+ * Subscription movement for the trend card: starts and cancellations in the
+ * chosen window, the previous window of the same length for the delta, and the
+ * products with the most active subscriptions. Read only.
+ */
+export async function getSubscriptionTrends(ctx: Ctx, days: 7 | 30, now = new Date()) {
+  const db = dbFor(ctx);
+  const start = new Date(now.getTime() - days * 86_400_000);
+  const prevStart = new Date(now.getTime() - 2 * days * 86_400_000);
+  const [started, startedPrev, cancelled, cancelledPrev, byProduct] = await Promise.all([
+    db.subscription.count({ where: { externalCreatedAt: { gte: start, lte: now } } }),
+    db.subscription.count({ where: { externalCreatedAt: { gte: prevStart, lt: start } } }),
+    db.subscription.count({ where: { cancelledAt: { gte: start, lte: now } } }),
+    db.subscription.count({ where: { cancelledAt: { gte: prevStart, lt: start } } }),
+    db.subscription.groupBy({
+      by: ["productTitleSnapshot"],
+      where: { status: "ACTIVE" },
+      _count: { _all: true },
+      orderBy: { _count: { productTitleSnapshot: "desc" } },
+      take: 8,
+    }),
+  ]);
+  return {
+    days,
+    started,
+    startedPrev,
+    cancelled,
+    cancelledPrev,
+    topProducts: byProduct.map((p) => ({ title: p.productTitleSnapshot, count: p._count._all })),
+  };
+}
+
 export async function getOverview(ctx: Ctx, now = new Date()) {
   const db = dbFor(ctx);
   const in7 = new Date(now.getTime() + 7 * 86_400_000);
