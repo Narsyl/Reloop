@@ -7,6 +7,7 @@ import type { ConnectorOrder, ConnectorProduct, ConnectorSubscription } from "@/
 import { recalculateJourneysForSubscriptions } from "@/lib/domain/journeys/recalc";
 import type { SyncCounts } from "./progress";
 import { localMidnightUtc } from "@/lib/domain/time";
+import { logActivity } from "@/lib/domain/activity/log";
 
 /**
  * Import stages. Each function imports ONE page and returns the next cursor and
@@ -186,6 +187,13 @@ export async function upsertConnectorSubscriptions(ctx: Ctx & { timezone: string
   const productIds = [...new Set(items.map((s) => s.externalProductId).filter(Boolean))];
   const products = await db.product.findMany({ where: { integrationId, externalProductId: { in: productIds } }, select: { id: true, externalProductId: true, variants: { select: { id: true, externalVariantId: true } } } });
   const productMap = new Map(products.map((p) => [p.externalProductId, p]));
+  // Previous product per subscription, so a provider-side product swap (e.g. a trial
+  // converting onto the main product) leaves a timestamped record.
+  const previous = await db.subscription.findMany({
+    where: { integrationId, externalSubscriptionId: { in: items.map((s) => s.externalSubscriptionId) } },
+    select: { externalSubscriptionId: true, externalProductId: true, productTitleSnapshot: true },
+  });
+  const previousMap = new Map(previous.map((e) => [e.externalSubscriptionId, e]));
 
   let active = 0;
   const subscriptionIds: string[] = [];
@@ -226,6 +234,17 @@ export async function upsertConnectorSubscriptions(ctx: Ctx & { timezone: string
       select: { id: true },
     });
     subscriptionIds.push(row.id);
+    const prev = previousMap.get(s.externalSubscriptionId);
+    if (prev && prev.externalProductId !== s.externalProductId) {
+      await logActivity(ctx, {
+        actorType: "INTEGRATION",
+        eventType: "SUBSCRIPTION_PRODUCT_CHANGED",
+        entityType: "SUBSCRIPTION",
+        entityId: row.id,
+        summary: `Product changed on subscription ${s.externalSubscriptionId}: "${prev.productTitleSnapshot}" became "${s.productTitle}".`,
+        metadata: { fromProductId: prev.externalProductId, fromTitle: prev.productTitleSnapshot, toProductId: s.externalProductId, toTitle: s.productTitle },
+      });
+    }
   }
   return { active, subscriptionIds };
 }
