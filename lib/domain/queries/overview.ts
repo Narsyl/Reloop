@@ -32,11 +32,15 @@ export async function getSubscriptionTrends(ctx: Ctx, days: 7 | 30, now = new Da
   const db = dbFor(ctx);
   const start = new Date(now.getTime() - days * 86_400_000);
   const prevStart = new Date(now.getTime() - 2 * days * 86_400_000);
-  const [started, startedPrev, cancelled, cancelledPrev, byProduct] = await Promise.all([
+  const [started, startedPrev, cancelled, cancelledPrev, movement, byProduct] = await Promise.all([
     db.subscription.count({ where: { externalCreatedAt: { gte: start, lte: now } } }),
     db.subscription.count({ where: { externalCreatedAt: { gte: prevStart, lt: start } } }),
     db.subscription.count({ where: { cancelledAt: { gte: start, lte: now } } }),
     db.subscription.count({ where: { cancelledAt: { gte: prevStart, lt: start } } }),
+    db.subscription.findMany({
+      where: { OR: [{ externalCreatedAt: { gte: start, lte: now } }, { cancelledAt: { gte: start, lte: now } }] },
+      select: { productTitleSnapshot: true, externalCreatedAt: true, cancelledAt: true, latestJourney: { select: { program: { select: { name: true } } } } },
+    }),
     db.subscription.findMany({
       where: { status: "ACTIVE" },
       select: { productTitleSnapshot: true, latestJourney: { select: { program: { select: { name: true } } } } },
@@ -63,12 +67,30 @@ export async function getSubscriptionTrends(ctx: Ctx, days: 7 | 30, now = new Da
       merged.set(key, { title: program ?? titleCase(key), count: 1, fromProgram: !!program });
     }
   }
+  // Per-family movement in the window: who the new subscriptions and the
+  // cancellations belong to, using the same family grouping as the ranking.
+  const families = new Map<string, { title: string; started: number; cancelled: number; fromProgram: boolean }>();
+  for (const s of movement) {
+    const program = s.latestJourney?.program.name ?? null;
+    const key = productFamilyKey(program ?? s.productTitleSnapshot);
+    let row = families.get(key);
+    if (!row) {
+      row = { title: program ?? titleCase(key), started: 0, cancelled: 0, fromProgram: !!program };
+      families.set(key, row);
+    } else if (program && !row.fromProgram) {
+      row.title = program;
+      row.fromProgram = true;
+    }
+    if (s.externalCreatedAt && s.externalCreatedAt >= start && s.externalCreatedAt <= now) row.started += 1;
+    if (s.cancelledAt && s.cancelledAt >= start && s.cancelledAt <= now) row.cancelled += 1;
+  }
   return {
     days,
     started,
     startedPrev,
     cancelled,
     cancelledPrev,
+    movement: [...families.values()].sort((a, b) => b.started + b.cancelled - (a.started + a.cancelled)).slice(0, 6),
     topProducts: [...merged.values()].sort((a, b) => b.count - a.count).slice(0, 8),
   };
 }

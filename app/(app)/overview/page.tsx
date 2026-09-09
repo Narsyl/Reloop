@@ -139,6 +139,25 @@ export default async function OverviewPage({ searchParams }: PageProps<"/overvie
               <div className="mt-1 text-xs text-muted-foreground">{trends.cancelledPrev === 1 ? "1 in the previous" : `${formatNumber(trends.cancelledPrev)} in the previous`} {range} days</div>
             </div>
           </div>
+          {trends.movement.length > 0 ? (
+            <div className="mt-5 border-t border-border pt-3">
+              <div className="mb-1.5 flex items-baseline justify-between text-[11px] font-medium text-muted-foreground">
+                <span>By product</span>
+                <span className="flex gap-4"><span className="w-10 text-right">New</span><span className="w-14 text-right">Cancelled</span></span>
+              </div>
+              <ul className="space-y-1">
+                {trends.movement.map((m) => (
+                  <li key={m.title} className="flex items-baseline justify-between gap-3 text-[13px]">
+                    <span className="min-w-0 truncate">{m.title}</span>
+                    <span className="flex shrink-0 gap-4">
+                      <span className="tnum w-10 text-right">{m.started || ""}</span>
+                      <span className={cn("tnum w-14 text-right", m.cancelled > 0 ? "text-status-danger" : "text-muted-foreground")}>{m.cancelled || ""}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
 
         <div className="rounded-xl border border-border bg-card p-5">
