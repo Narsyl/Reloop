@@ -49,8 +49,23 @@ export const EMPTY_COUNTS: SyncCounts = {
   onetimes: 0,
 };
 
+/** A run that has been QUEUED without starting, or RUNNING without a heartbeat, for this long is dead. */
+const STALE_SYNC_MS = 2 * 3600_000;
+
 export async function createSyncRun(ctx: { organizationId: string; userId?: string | null }, integrationId: string, kind: SyncKind, updatedSince?: Date | null) {
   const db = dbFor(ctx);
+  // A dead run must never wedge the pipeline: fail anything stale before checking for an active run.
+  const cutoff = new Date(Date.now() - STALE_SYNC_MS);
+  await db.integrationSync.updateMany({
+    where: {
+      integrationId,
+      OR: [
+        { status: "QUEUED", createdAt: { lt: cutoff }, startedAt: null },
+        { status: "RUNNING", lastHeartbeatAt: { lt: cutoff } },
+      ],
+    },
+    data: { status: "FAILED", error: "Stale run superseded: it never progressed and a newer sync is taking over.", finishedAt: new Date() },
+  });
   const running = await db.integrationSync.findFirst({ where: { integrationId, status: { in: ["QUEUED", "RUNNING"] } }, select: { id: true } });
   if (running) throw new SyncAlreadyRunningError(running.id);
   return db.integrationSync.create({
