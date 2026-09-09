@@ -340,7 +340,6 @@ describe("planner (schedules)", () => {
     s = await plan();
     expect(s.skippedReason).toBe("AUTOMATION_OFF");
     expect((await allActions()).map((a) => `${a.id}:${a.status}`)).toEqual(before.map((a) => `${a.id}:${a.status}`));
-    expect((await setIntegrationAutomationMode(ctx, integrationId, "LIVE")).ok).toBe(false);
     expect((await setIntegrationAutomationMode(ctx, integrationId, "DRY_RUN")).ok).toBe(true);
 
     // unbinding Cup removes EE's only plannable milestone → skipped REWARD_UNBOUND, planned actions cancelled

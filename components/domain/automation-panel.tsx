@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Play, ShieldOff, FlaskConical, Lock } from "lucide-react";
+import { Play, ShieldOff, FlaskConical } from "lucide-react";
 import type { AutomationMode } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { ConfirmationDialog } from "@/components/domain/confirmation-dialog";
@@ -31,23 +31,29 @@ export function AutomationModeControl({ integrationId, displayName, mode, canMan
       <ConfirmationDialog
         key={value}
         trigger={<button type="button" className="w-full" disabled={pending}>{inner}</button>}
-        title={value === "DRY_RUN" ? `Switch ${displayName} to dry run?` : `Switch ${displayName} automation off?`}
-        impact={value === "DRY_RUN" ? "The planner will create PLANNED actions for Ready rules and dry-run them (read-only checks + a preview of the exact one-time we would create). Nothing is written to Recharge in this phase." : "The planner stops. Existing planned actions stay as they are and resume being evaluated when dry run is switched back on."}
-        confirmLabel={value === "DRY_RUN" ? "Enable dry run" : "Switch off"}
+        title={value === "LIVE" ? `Go live on ${displayName}?` : value === "DRY_RUN" ? `Switch ${displayName} to test mode?` : `Switch ${displayName} automation off?`}
+        impact={
+          value === "LIVE"
+            ? "Due gifts will be added to real customer renewals automatically. Every gift still passes a fresh check against Recharge first, only verified gift products are used, and every write is read back and verified before it counts."
+            : value === "DRY_RUN"
+              ? "Gifts are planned, checked against Recharge and previewed. Nothing is written."
+              : "The planner stops. Existing planned gifts stay as they are and resume being evaluated when automation is switched back on."
+        }
+        confirmLabel={value === "LIVE" ? "Go live" : value === "DRY_RUN" ? "Enable test mode" : "Switch off"}
         onConfirm={async () => {
           const r = await setAutomationMode({ integrationId, mode: value });
           if (r.ok) router.refresh();
           return r;
         }}
-        successMessage={value === "DRY_RUN" ? "Test mode enabled and the planner queued" : "Automation off"}
+        successMessage={value === "LIVE" ? "Automation is live" : value === "DRY_RUN" ? "Test mode enabled and the planner queued" : "Automation off"}
       />
     );
   };
   return (
     <div className="grid gap-2 sm:grid-cols-3">
       {opt("OFF", "Off", "Nothing is planned or previewed.", ShieldOff)}
-      {opt("DRY_RUN", "Dry run", "Plan + validate + preview. No writes to the subscription platform.", FlaskConical)}
-      {opt("LIVE", "Live", "Attach markers automatically.", Lock, "Live execution is not available in this phase: the connector has no write operation and this mode is refused server-side.")}
+      {opt("DRY_RUN", "Test mode", "Plan, check and preview. Nothing is written.", FlaskConical)}
+      {opt("LIVE", "Live", "Due gifts are added automatically, with every check still in place.", Play)}
     </div>
   );
 }

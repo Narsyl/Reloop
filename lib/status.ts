@@ -67,7 +67,7 @@ export const integrationStatus: Record<IntegrationStatus, StatusMeta> = {
 export const automationMode: Record<AutomationMode, StatusMeta> = {
   OFF: { label: "Off", tone: "neutral", description: "Nothing is scheduled and nothing is written to Recharge." },
   DRY_RUN: { label: "Test mode", tone: "info", description: "Every gift is rehearsed and previewed. Nothing is written to Recharge." },
-  LIVE: { label: "Live", tone: "success", description: "Gifts are added automatically. Not available yet." },
+  LIVE: { label: "Live", tone: "success", description: "Due gifts are added automatically after a fresh check against Recharge, and every write is read back and verified." },
 };
 
 export const eventStatus: Record<IntegrationEventStatus, StatusMeta> = {

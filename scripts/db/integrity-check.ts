@@ -91,9 +91,9 @@ async function main() {
   const actionCounts = actions.map((a) => `${a.status} ${a._count._all}`).join(", ") || "0";
   // Phase 6 gate: general LIVE execution stays off — every executed/attached action must be covered by a
   // consumed ControlledTestAuthorization; anything executed WITHOUT one means the containment was bypassed.
-  const executedRows = await prisma.automationAction.findMany({ where: { ...O, OR: [{ status: { in: ["EXECUTING", "ATTACHED", "FULFILLED"] } }, { executedAt: { not: null } }, { externalObjectId: { not: null } }] }, select: { id: true, status: true, controlledTest: { select: { status: true, outcome: true } } } });
-  const uncovered = executedRows.filter((r) => !r.controlledTest || r.controlledTest.status === "ARMED");
-  add("AutomationAction rows (every executed action covered by a controlled-test authorization)", uncovered.length === 0, `${actionCounts}${executedRows.length ? ` · executed: ${executedRows.map((r) => `${r.id.slice(-6)}=${r.status}/${r.controlledTest?.outcome ?? "NO-AUTH"}`).join(", ")}` : ""}${uncovered.length ? ` · ${uncovered.length} WITHOUT authorization ← containment bypassed` : ""}`);
+  const executedRows = await prisma.automationAction.findMany({ where: { ...O, OR: [{ status: { in: ["EXECUTING", "ATTACHED", "FULFILLED"] } }, { executedAt: { not: null } }, { externalObjectId: { not: null } }] }, select: { id: true, status: true, executedVia: true, controlledTest: { select: { status: true, outcome: true } } } });
+  const uncovered = executedRows.filter((r) => r.executedVia !== "LIVE_AUTOMATION" && (!r.controlledTest || r.controlledTest.status === "ARMED"));
+  add("AutomationAction rows (every executed action covered by an authorization or live automation)", uncovered.length === 0, `${actionCounts}${executedRows.length ? ` · executed: ${executedRows.map((r) => `${r.id.slice(-6)}=${r.status}/${r.controlledTest?.outcome ?? "NO-AUTH"}`).join(", ")}` : ""}${uncovered.length ? ` · ${uncovered.length} WITHOUT authorization ← containment bypassed` : ""}`);
   cmp("plannerRuns", await prisma.plannerRun.count({ where: O }).catch(() => -1));
 
   // natural-key uniqueness (DB-enforced, but verify the restored data honours it)

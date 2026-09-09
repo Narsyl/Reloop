@@ -2,6 +2,7 @@ import { cron } from "inngest";
 import { inngest, automationPlanRequested } from "@/lib/jobs/inngest";
 import { prisma } from "@/lib/db/prisma";
 import { planActionsForIntegration } from "@/lib/domain/actions/planner";
+import { executeDueActions } from "@/lib/domain/actions/execute";
 import { dryRunAction } from "@/lib/domain/actions/dry-run";
 import { logger } from "@/lib/logging/logger";
 
@@ -34,9 +35,9 @@ export const planAutomationActions = inngest.createFunction(
 );
 
 /**
- * dryRunDueActions: every 30 minutes, dry-run PLANNED actions whose executeAfter has passed and
- * that have not been dry-run since (re)planning. In LIVE mode (unreachable now) this is where the
- * real executor would be dispatched instead.
+ * dryRunDueActions: every 30 minutes. For DRY_RUN integrations, dry-run PLANNED actions whose
+ * executeAfter has passed and that have not been checked since (re)planning. For LIVE
+ * integrations, dispatch the real executor instead; it runs its own fresh preflight per action.
  */
 export const dryRunDueActions = inngest.createFunction(
   { id: "automation-dry-run-due", name: "Dry-run due planned actions", triggers: [cron("*/30 * * * *")], retries: 1 },
@@ -45,20 +46,39 @@ export const dryRunDueActions = inngest.createFunction(
       const now = new Date();
       const rows = await prisma.automationAction.findMany({
         where: { status: "PLANNED", executeAfter: { lte: now }, integration: { status: "CONNECTED", automationMode: { not: "OFF" } }, OR: [{ lastDryRunAt: null }, { lastDryRunAt: { lt: prisma.automationAction.fields.executeAfter } }] },
-        select: { id: true, organizationId: true },
+        select: { id: true, organizationId: true, integrationId: true, integration: { select: { automationMode: true } } },
         orderBy: { executeAfter: "asc" },
         take: 100,
       });
       return rows;
     });
+    // LIVE integrations get the real executor, once per integration; it selects and
+    // preflights every due action itself, so its listing ignores the recently-checked
+    // filter above (a fresh dry-run must not postpone execution).
+    const liveIntegrations = await step.run("list-live", async () => {
+      const rows = await prisma.automationAction.findMany({
+        where: { status: "PLANNED", executeAfter: { lte: new Date() }, integration: { status: "CONNECTED", automationMode: "LIVE" } },
+        select: { organizationId: true, integrationId: true },
+        distinct: ["integrationId"],
+      });
+      return rows;
+    });
+    const executed: { integrationId: string; attached: number; adopted: number; skipped: number; failed: number; uncertain: number }[] = [];
+    for (const li of liveIntegrations) {
+      const r = await step.run(`execute:${li.integrationId}`, async () => {
+        const res = await executeDueActions({ organizationId: li.organizationId }, li.integrationId);
+        return { integrationId: li.integrationId, attached: res.attached, adopted: res.adopted, skipped: res.skipped, failed: res.failed, uncertain: res.uncertain };
+      });
+      executed.push(r);
+    }
     const results: { id: string; wouldExecute: boolean; blockingReason: string | null }[] = [];
-    for (const a of due) {
+    for (const a of due.filter((a) => a.integration.automationMode !== "LIVE")) {
       const r = await step.run(`dry-run:${a.id}`, async () => {
         const res = await dryRunAction({ organizationId: a.organizationId }, a.id);
         return { id: a.id, wouldExecute: res.wouldExecute, blockingReason: res.blockingReason };
       });
       results.push(r);
     }
-    return { due: due.length, results };
+    return { due: due.length, executed, results };
   },
 );

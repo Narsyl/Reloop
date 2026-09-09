@@ -20,7 +20,7 @@ async function withRole(minimum: "ADMIN" | "OPERATOR") {
 
 const modeSchema = z.object({ integrationId: z.string().min(1), mode: z.enum(["OFF", "DRY_RUN", "LIVE"]) });
 
-/** OFF ↔ DRY_RUN. LIVE is refused server-side in this phase. */
+/** OFF, DRY_RUN (test mode) or LIVE. */
 export async function setAutomationMode(input: unknown): Promise<ActionResult<{ mode: string }>> {
   const ctx = await withRole("ADMIN");
   if (!ctx) return { ok: false, error: "You need the Admin or Owner role to change automation mode." };

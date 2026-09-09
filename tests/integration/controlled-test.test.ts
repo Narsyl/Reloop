@@ -174,8 +174,10 @@ describe("arming is single, explicit, expiring", () => {
     // dry-run cannot POST by construction (no write in its code path)
     await dryRunAction(ctx, a.id, { now: NOW, persist: false, connector: fake });
     expect(rc.postCalls).toBe(0);
-    // normal LIVE automation remains refused
-    expect((await setIntegrationAutomationMode(ctx, integrationId, "LIVE")).ok).toBe(false);
+    // LIVE mode is settable, but flipping it never writes by itself (the executor is a separate call)
+    expect((await setIntegrationAutomationMode(ctx, integrationId, "LIVE")).ok).toBe(true);
+    expect(rc.postCalls).toBe(0);
+    expect((await setIntegrationAutomationMode(ctx, integrationId, "DRY_RUN")).ok).toBe(true);
   });
   it("exactly ONE action can be armed per integration (DB unique); a second action is refused until disarm", async () => {
     const a1 = await action("CT-1");

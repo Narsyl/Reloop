@@ -232,7 +232,7 @@ export default async function IntegrationDetailPage({ params }: PageProps<"/sett
         <section className="space-y-3">
           <SectionHeader
             title="Automation"
-            description="The hard safety boundary for this store. When automation is off nothing is planned. In test mode gifts are planned and rehearsed against fresh data with a preview of the exact one-time, and nothing is written to Recharge. Live is not available yet."
+            description="The hard safety boundary for this store. Off plans nothing. Test mode plans and rehearses gifts with a preview of the exact one-time, writing nothing. Live adds due gifts automatically, with every check still in place."
             actions={hasRole(ctx, "ADMIN") ? <RunPlannerButton integrationId={i.id} disabled={i.automationMode === "OFF"} /> : undefined}
           />
           <AutomationModeControl integrationId={i.id} displayName={i.displayName} mode={i.automationMode} canManage={hasRole(ctx, "ADMIN")} />

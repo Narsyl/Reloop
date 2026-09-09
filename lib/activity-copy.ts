@@ -106,7 +106,12 @@ export function exceptionAdvice(type: string): string {
     case "MAPPING_BROKEN":
       return "Reassign the product to a programme under Settings, then the journey will be recalculated.";
     case "CONTROLLED_TEST_READBACK_MISMATCH":
+    case "GIFT_READBACK_MISMATCH":
       return "Compare the one-time in Recharge with the intended payload in the gift's technical details before anything else is written.";
+    case "GIFT_EXECUTION_FAILED":
+      return "Open the gift to see what Recharge rejected, fix the cause, then the next automatic check will retry the plan.";
+    case "GIFT_WRITE_UNCERTAIN":
+      return "Check the customer's upcoming charge in Recharge for the gift before doing anything. The action is held and will not retry on its own.";
     default:
       return "Open the linked subscription and compare it against Recharge before resolving.";
   }
