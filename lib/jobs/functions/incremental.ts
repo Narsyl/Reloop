@@ -6,14 +6,16 @@ import { logger } from "@/lib/logging/logger";
 import { hasDecryptionKeyFor } from "@/lib/crypto/credentials";
 
 /**
- * Temporary freshness infrastructure until webhooks (Phase 5): every 4 hours,
- * queue a READ-ONLY incremental sync for each connected integration that has
- * completed an initial import. `updatedSince` = last successful sync − 10 min
- * (overlap is harmless: everything is an upsert). Journeys recalculate
- * deterministically inside the run. Never creates actions, never writes.
+ * Backstop freshness: every 20 minutes, queue a READ-ONLY incremental sync for
+ * each connected integration that has completed an initial import. Webhooks
+ * deliver most changes instantly; this sweep catches anything they miss.
+ * `updatedSince` = last successful sync − 10 min (overlap is harmless:
+ * everything is an upsert), and a still-running sync is skipped rather than
+ * doubled. Journeys recalculate deterministically inside the run. Never
+ * creates actions, never writes to the provider.
  */
 export const scheduledIncrementalSync = inngest.createFunction(
-  { id: "integration-incremental-sync-schedule", name: "Scheduled incremental sync (read-only)", triggers: [cron("15 */4 * * *")], retries: 1 },
+  { id: "integration-incremental-sync-schedule", name: "Scheduled incremental sync (read-only)", triggers: [cron("*/20 * * * *")], retries: 1 },
   async ({ step }) => {
     const integrations = await step.run("list-integrations", async () => {
       const rows = await prisma.integration.findMany({ where: { status: "CONNECTED", lastSuccessfulSyncAt: { not: null } }, select: { id: true, organizationId: true, lastSuccessfulSyncAt: true, encryptedCredentials: true } });

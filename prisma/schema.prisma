@@ -659,6 +659,8 @@ model AutomationAction {
   executeAfter     DateTime? // targetChargeAt - markerLeadHours (or now, if already inside the window)
   executedAt       DateTime?
   verifiedAt       DateTime?
+  /// how the write was authorised: CONTROLLED_TEST (single armed authorization) or LIVE_AUTOMATION (live mode executor)
+  executedVia      String?
 
   externalObjectType String?
   externalObjectId   String?
