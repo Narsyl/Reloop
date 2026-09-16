@@ -26,7 +26,7 @@ export type PopulationRow = {
   nextChargeAt: Date | null;
   automationOverride: "ENABLED" | "DISABLED" | null;
   latestJourneyId: string | null;
-  latestJourney: { id: string; programId: string; successfulCycles: number; endedAt: Date | null } | null;
+  latestJourney: { id: string; programId: string; successfulCycles: number; endedAt: Date | null; startedAt: Date | null } | null;
   /** the subscription's CURRENT product/variant resolved through the programme mappings (null = unresolvable) */
   resolvedProgramId: string | null;
   /** distinct successful deliveries of the same provider customer in this programme, across all journeys */
@@ -55,7 +55,7 @@ export async function loadProgramPopulation(
     include: {
       customer: { select: { id: true, firstName: true, lastName: true, email: true } },
       integration: { select: { id: true, status: true, automationMode: true } },
-      latestJourney: { select: { id: true, programId: true, successfulCycles: true, endedAt: true } },
+      latestJourney: { select: { id: true, programId: true, successfulCycles: true, endedAt: true, startedAt: true } },
     },
     orderBy: [{ status: "asc" }, { externalCreatedAt: "asc" }],
   });

@@ -112,6 +112,7 @@ model Organization {
   rewardSchedules    RewardSchedule[]
   rewardMilestones   RewardScheduleMilestone[]
   milestoneMarkers   ProgramMilestoneMarker[]
+  scheduleVersions   ProgramScheduleVersion[]
 }
 
 enum OrganizationRole {
@@ -297,6 +298,7 @@ model SubscriptionProgram {
   journeys         SubscriptionJourney[]
   rules            AutomationRule[]
   rewardSchedule   RewardSchedule?              @relation(fields: [rewardScheduleId], references: [id], onDelete: SetNull)
+  scheduleVersions ProgramScheduleVersion[]
   milestoneMarkers ProgramMilestoneMarker[]
   actions          AutomationAction[]
 
@@ -846,6 +848,9 @@ model RewardSchedule {
   name           String
   description    String?
   status         RewardScheduleStatus @default(DRAFT) // DRAFT → READY (usable by the dry-run planner) → ARCHIVED; no ACTIVE
+  /// when true the journey loops: after the highest milestone delivery, the sequence starts again.
+  /// Laps beyond the first treat an INITIAL_CHECKOUT position as an ordinary renewal gift.
+  repeats        Boolean              @default(false)
   createdById    String?
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
@@ -853,8 +858,28 @@ model RewardSchedule {
   organization Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   milestones   RewardScheduleMilestone[]
   programs     SubscriptionProgram[]
+  programVersions ProgramScheduleVersion[]
 
   @@unique([organizationId, name])
+}
+
+/// Versioned schedule assignment: journeys STARTED on or after effectiveFrom resolve this
+/// schedule (latest such version wins). Journeys older than every version keep the programme's
+/// baseline rewardScheduleId, so existing subscribers are never moved off what they were promised.
+model ProgramScheduleVersion {
+  id             String   @id @default(cuid())
+  organizationId String
+  programId      String
+  scheduleId     String
+  effectiveFrom  DateTime
+  createdById    String?
+  createdAt      DateTime @default(now())
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  program      SubscriptionProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  schedule     RewardSchedule      @relation(fields: [scheduleId], references: [id], onDelete: Restrict)
+
+  @@index([programId, effectiveFrom])
 }
 
 enum MilestoneExecutionMode {

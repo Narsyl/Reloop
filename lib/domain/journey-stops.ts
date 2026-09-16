@@ -39,3 +39,23 @@ export function buildJourneyStops(
   }
   return stops;
 }
+
+/**
+ * The milestones a strip should display for a journey. Non repeating journeys show the
+ * schedule as authored. Repeating journeys show the customer's CURRENT lap: after the
+ * sequence wraps, the stops carry the real delivery numbers of this lap.
+ */
+export function displayMilestones<M extends { cycleNumber: number }>(
+  milestones: M[],
+  repeats: boolean,
+  done: number,
+): (M & { cycleNumber: number })[] {
+  if (!repeats || milestones.length === 0) return milestones;
+  const length = Math.max(...milestones.map((m) => m.cycleNumber));
+  const lapStart = Math.floor(done / length) * length;
+  if (lapStart === 0) return milestones;
+  return milestones
+    .slice()
+    .sort((a, b) => a.cycleNumber - b.cycleNumber)
+    .map((m) => ({ ...m, cycleNumber: lapStart + m.cycleNumber }));
+}

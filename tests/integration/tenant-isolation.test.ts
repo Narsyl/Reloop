@@ -200,6 +200,8 @@ async function seedOrg(org: { id: string; slug: string; name: string }, userId: 
   await prisma.subscriptionProgram.update({ where: { id: program.id }, data: { rewardScheduleId: rewardSchedule.id } });
   const binding = await prisma.programMilestoneMarker.create({ data: { organizationId: org.id, programId: program.id, rewardScheduleMilestoneId: milestone.id, fulfillmentMarkerId: marker.id } });
   ids.ProgramMilestoneMarker = binding.id;
+  const scheduleVersion = await prisma.programScheduleVersion.create({ data: { organizationId: org.id, programId: program.id, scheduleId: rewardSchedule.id, effectiveFrom: new Date("2026-09-16T00:00:00Z") } });
+  ids.ProgramScheduleVersion = scheduleVersion.id;
 
   const shopifyInteg = await prisma.integration.create({
     data: { organizationId: org.id, provider: "SHOPIFY", externalStoreId: `shp-${org.id}.myshopify.com`, displayName: "Shopify", encryptedCredentials: "x", automationMode: "OFF", pairedIntegrationId: integ.id },

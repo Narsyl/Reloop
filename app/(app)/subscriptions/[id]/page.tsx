@@ -12,7 +12,7 @@ import { StatusBadge } from "@/components/status/status-badge";
 import { Timeline } from "@/components/timeline/timeline";
 import { ActivityItem } from "@/components/timeline/activity-item";
 import { JourneyStrip } from "@/components/domain/journey-strip";
-import { buildJourneyStops } from "@/lib/domain/journey-stops";
+import { buildJourneyStops, displayMilestones } from "@/lib/domain/journey-stops";
 import { GiftRow } from "@/components/domain/gift-row";
 import { TechnicalDetails, TechRow } from "@/components/data/technical-details";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -32,9 +32,9 @@ export default async function SubscriptionDetailPage({ params }: PageProps<"/sub
   const nextAction = liveActions.find((a) => a.journeyId === journey?.id && a.targetCycle === nextCycle);
   const frequency = s.intervalFrequency && s.intervalUnit ? `every ${s.intervalFrequency === 1 ? "" : `${s.intervalFrequency} `}${s.intervalUnit.toLowerCase()}${s.intervalFrequency === 1 ? "" : "s"}` : null;
 
-  const view = journey ? await resolveProgramRewards(ctx, journey.programId) : null;
+  const view = journey ? await resolveProgramRewards(ctx, journey.programId, { journeyStartedAt: journey.startedAt }) : null;
   const stops = journey
-    ? buildJourneyStops(view?.milestones ?? [], journey.successfulCycles, nextCycle, { addedAtTarget: nextAction?.status === "ATTACHED" })
+    ? buildJourneyStops(displayMilestones(view?.milestones ?? [], !!view?.schedule?.repeats, journey.successfulCycles), journey.successfulCycles, nextCycle, { addedAtTarget: nextAction?.status === "ATTACHED" })
     : [];
 
   const journeySentence = journey

@@ -26,7 +26,7 @@ import { logActivity } from "@/lib/domain/activity/log";
 import { evaluateJourneyEligibility, type IneligibilityReason } from "@/lib/domain/eligibility/evaluate";
 import { qualifyForRule, type DisqualificationReason } from "@/lib/domain/eligibility/qualify";
 import { loadProgramPopulation, populationCustomerName, type PopulationRow } from "@/lib/domain/eligibility/population";
-import { resolveAllProgramRewards, resolveProgramRewards, type EffectiveMilestone, type MilestoneReadinessReason, type ProgramRewardView } from "@/lib/domain/rewards/resolver";
+import { effectiveMilestoneForCycle, resolveProgramRewardVersions, viewForJourneyStart, type EffectiveMilestone, type MilestoneReadinessReason, type ProgramRewardVersions, type ProgramRewardView } from "@/lib/domain/rewards/resolver";
 import { computeSchedule } from "./schedule";
 import { liveKeyFor, ownerKeyFor } from "./keys";
 import { transitionAction, type ActionCancelReason } from "./transitions";
@@ -136,27 +136,47 @@ export async function planActionsForIntegration(
   }
 
   async function planInner() {
-    // 1. effective milestones per programme (programmes of this store that have a schedule)
-    const views = await resolveAllProgramRewards(ctx, { integrationId });
-    summary.programsConsidered = views.length;
-    const viewsByProgram = new Map(views.map((v) => [v.programId, v]));
-    const plannable = new Map<string, EffectiveMilestone[]>();
-    for (const v of views) {
-      for (const m of v.milestones) {
+    // 1. schedule versions per programme (programmes of this store with a baseline schedule or any version).
+    //    A journey resolves the version in force when IT started, so existing subscribers keep what
+    //    they were promised while newer journeys follow newer versions.
+    const programRows = await db.subscriptionProgram.findMany({
+      where: { OR: [{ rewardScheduleId: { not: null } }, { scheduleVersions: { some: {} } }], products: { some: { product: { integrationId } } } },
+      select: { id: true },
+      orderBy: { name: "asc" },
+    });
+    const versionsByProgram = new Map<string, ProgramRewardVersions>();
+    for (const p of programRows) versionsByProgram.set(p.id, await resolveProgramRewardVersions(ctx, p.id));
+    summary.programsConsidered = versionsByProgram.size;
+
+    // A repeating milestone is plannable on later laps even though its first lap is the checkout order.
+    const lapPlannable = (v: ProgramRewardView, m: EffectiveMilestone) =>
+      m.readiness === "READY" || (!!v.schedule?.repeats && m.readinessReasons.every((r) => r === "INITIAL_CHECKOUT_NOT_PLANNED"));
+    const allViews = (v: ProgramRewardVersions) => [v.baseline, ...v.versions.map((x) => x.view)];
+    const newSubscriberView = (v: ProgramRewardVersions) => (v.versions.length > 0 ? v.versions[v.versions.length - 1].view : v.baseline);
+
+    const plannablePrograms = new Set<string>();
+    for (const [programId, v] of versionsByProgram) {
+      const current = newSubscriberView(v);
+      for (const m of current.milestones) {
         summary.milestonesConsidered++;
-        if (m.readiness === "READY") plannable.set(v.programId, [...(plannable.get(v.programId) ?? []), m]);
-        else summary.milestonesSkipped.push({ programId: v.programId, programName: v.programName, milestoneId: m.milestoneId, cycleNumber: m.cycleNumber, rewardItem: m.rewardItem.name, reason: m.readiness });
+        if (!lapPlannable(current, m)) summary.milestonesSkipped.push({ programId, programName: v.programName, milestoneId: m.milestoneId, cycleNumber: m.cycleNumber, rewardItem: m.rewardItem.name, reason: m.readiness as MilestoneReadinessReason });
       }
+      if (allViews(v).some((view) => view.milestones.some((m) => lapPlannable(view, m)))) plannablePrograms.add(programId);
     }
-    if (plannable.size === 0) summary.skippedReason = "NO_PLANNABLE_MILESTONES";
+    if (plannablePrograms.size === 0) summary.skippedReason = "NO_PLANNABLE_MILESTONES";
 
     const confirmedActionIds = new Set<string>();
 
-    // 2. evaluate each programme's population against its plannable milestones
-    for (const [programId, milestones] of plannable) {
+    // 2. evaluate each programme's population; each row is judged against ITS journey's version
+    for (const programId of plannablePrograms) {
+      const versions = versionsByProgram.get(programId)!;
       const population = await loadProgramPopulation(ctx, programId, { integrationId });
       summary.subscriptionsEvaluated += population.rows.length;
       for (const row of population.rows) {
+        const rowView = viewForJourneyStart(versions, row.latestJourney?.startedAt ?? null);
+        const milestones: EffectiveMilestone[] = rowView.schedule?.repeats
+          ? [effectiveMilestoneForCycle(rowView, (row.latestJourney?.successfulCycles ?? 0) + 1)].filter((m): m is EffectiveMilestone => !!m && m.readiness === "READY" && m.executionMode === "UPCOMING_RENEWAL")
+          : rowView.milestones.filter((m) => m.readiness === "READY");
         const eligibility = evaluateJourneyEligibility({
           subscription: { status: row.status, mappingStatus: row.mappingStatus, nextChargeDate: row.nextChargeDate, latestJourneyId: row.latestJourneyId, automationOverride: row.automationOverride },
           journey: row.latestJourney ? { id: row.latestJourney.id, endedAt: row.latestJourney.endedAt, programId: row.latestJourney.programId } : null,
@@ -287,7 +307,7 @@ export async function planActionsForIntegration(
       },
       include: {
         subscription: { select: { id: true, status: true, nextChargeDate: true, latestJourneyId: true, mappingStatus: true, customerId: true, externalSubscriptionId: true } },
-        journey: { select: { id: true, programId: true, successfulCycles: true, endedAt: true } },
+        journey: { select: { id: true, programId: true, successfulCycles: true, endedAt: true, startedAt: true } },
         milestone: { select: { id: true, scheduleId: true, cycleNumber: true, eligibilityScope: true } },
       },
     });
@@ -308,21 +328,22 @@ export async function planActionsForIntegration(
     }
     logger.info("planner.completed", { integrationId, plannerRunId: run?.id ?? null, persist, ...countsOf(summary) });
 
-    async function viewFor(programId: string): Promise<ProgramRewardView> {
-      const cached = viewsByProgram.get(programId);
-      if (cached) return cached;
-      const v = await resolveProgramRewards(ctx, programId);
-      viewsByProgram.set(programId, v);
-      return v;
+    async function viewFor(programId: string, journeyStartedAt: Date | null): Promise<ProgramRewardView> {
+      let versions = versionsByProgram.get(programId);
+      if (!versions) {
+        versions = await resolveProgramRewardVersions(ctx, programId);
+        versionsByProgram.set(programId, versions);
+      }
+      return viewForJourneyStart(versions, journeyStartedAt);
     }
 
     async function reconcileReason(a: (typeof stale)[number]): Promise<{ kind: "CANCELLED"; reason: ActionCancelReason; detail?: string } | { kind: "SUPERSEDED"; replacedBy: string | null }> {
       // legacy rule-planned action (no milestone): rules are retired
       if (!a.milestone) return { kind: "CANCELLED", reason: "RULE_RETIRED", detail: "planned from a legacy rule; schedules are the configuration now" };
       const programId = a.programId ?? a.journey.programId;
-      const view = await viewFor(programId);
-      const em = view.milestones.find((m) => m.milestoneId === a.milestone!.id) ?? null;
-      if (!em) return { kind: "CANCELLED", reason: "MILESTONE_NOT_ASSIGNED", detail: view.schedule ? `programme now on "${view.schedule.name}"` : "programme has no reward schedule" };
+      const view = await viewFor(programId, a.journey.startedAt);
+      const em = effectiveMilestoneForCycle(view, a.targetCycle);
+      if (!em) return { kind: "CANCELLED", reason: "MILESTONE_NOT_ASSIGNED", detail: view.schedule ? `this journey's version "${view.schedule.name}" has no gift at delivery ${a.targetCycle}` : "this journey's version has no reward schedule" };
       if (em.readiness !== "READY") {
         const r = em.readiness;
         if (r === "SCHEDULE_NOT_READY" || r === "SCHEDULE_ARCHIVED") return { kind: "CANCELLED", reason: "SCHEDULE_NOT_READY", detail: r };

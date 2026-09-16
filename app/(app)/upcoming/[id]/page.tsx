@@ -11,7 +11,7 @@ import { PageHeader, SectionHeader } from "@/components/layout/page-header";
 import { StatusBadge } from "@/components/status/status-badge";
 import { DryRunButton } from "@/components/domain/dry-run-button";
 import { JourneyStrip } from "@/components/domain/journey-strip";
-import { buildJourneyStops } from "@/lib/domain/journey-stops";
+import { buildJourneyStops, displayMilestones } from "@/lib/domain/journey-stops";
 import { TechnicalDetails, TechRow } from "@/components/data/technical-details";
 import { ActivityItem } from "@/components/timeline/activity-item";
 
@@ -30,9 +30,10 @@ export default async function ActionDetailPage({ params }: PageProps<"/upcoming/
   const state = a.status === "PLANNED" ? dryRunState(a, now) : actionStatus[a.status];
 
   // journey strip: the programme's schedule stops with this customer's progress
-  const view = a.programId ? await resolveProgramRewards(ctx, a.programId) : null;
+  const view = a.programId ? await resolveProgramRewards(ctx, a.programId, { journeyStartedAt: a.journey.startedAt }) : null;
   const done = a.journey.successfulCycles;
-  const stops = buildJourneyStops(view?.milestones ?? [], done, a.targetCycle, { addedAtTarget: a.status === "ATTACHED" });
+  const stripMilestones = displayMilestones(view?.milestones ?? [], !!view?.schedule?.repeats, done);
+  const stops = buildJourneyStops(stripMilestones, done, a.targetCycle, { addedAtTarget: a.status === "ATTACHED" });
 
   const checkSentence = (() => {
     if (a.status === "ATTACHED") return `The gift is on the ${a.targetChargeDate ? formatDateOnly(a.targetChargeDate) : "upcoming"} renewal in Recharge.`;

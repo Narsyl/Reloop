@@ -39,7 +39,7 @@ export async function upsertRewardItem(ctx: Ctx, input: { id?: string; name: str
 
 // ── Schedules ──────────────────────────────────────────────────────────────
 
-export async function upsertRewardSchedule(ctx: Ctx, input: { id?: string; name: string; description?: string | null }): Promise<Result<{ id: string }>> {
+export async function upsertRewardSchedule(ctx: Ctx, input: { id?: string; name: string; description?: string | null; repeats?: boolean }): Promise<Result<{ id: string }>> {
   const db = dbFor(ctx);
   const name = input.name.trim();
   if (name.length < 2 || name.length > 80) return { ok: false, error: "Give the schedule a name (2–80 characters).", fieldErrors: { name: ["2–80 characters"] } };
@@ -48,11 +48,11 @@ export async function upsertRewardSchedule(ctx: Ctx, input: { id?: string; name:
       const before = await db.rewardSchedule.findUnique({ where: { id: input.id } });
       if (!before) return { ok: false, error: "Schedule not found." };
       if (before.status === "ARCHIVED") return { ok: false, error: "Archived schedules cannot be edited." };
-      const s = await db.rewardSchedule.update({ where: { id: input.id }, data: { name, description: input.description?.trim() || null } });
+      const s = await db.rewardSchedule.update({ where: { id: input.id }, data: { name, description: input.description?.trim() || null, ...(input.repeats === undefined ? {} : { repeats: input.repeats }) } });
       await logActivity(ctx, { ...actor(ctx), eventType: "REWARD_SCHEDULE_UPDATED", entityType: "REWARD_SCHEDULE", entityId: s.id, summary: `Reward schedule "${before.name}" updated → "${s.name}"` });
       return { ok: true, data: { id: s.id } };
     }
-    const s = await db.rewardSchedule.create({ data: { organizationId: ctx.organizationId, name, description: input.description?.trim() || null, createdById: ctx.userId ?? null } });
+    const s = await db.rewardSchedule.create({ data: { organizationId: ctx.organizationId, name, description: input.description?.trim() || null, repeats: input.repeats ?? false, createdById: ctx.userId ?? null } });
     await logActivity(ctx, { ...actor(ctx), eventType: "REWARD_SCHEDULE_CREATED", entityType: "REWARD_SCHEDULE", entityId: s.id, summary: `Reward schedule "${s.name}" created (draft)` });
     return { ok: true, data: { id: s.id } };
   } catch (e) {
@@ -153,4 +153,41 @@ export async function migrateRuleToMilestone(ctx: Ctx, input: { ruleId: string; 
     metadata: { ruleId: rule.id, previousStatus: rule.status, scheduleId: m.scheduleId, milestoneId: m.id },
   });
   return { ok: true };
+}
+
+/**
+ * Version a programme's journey: journeys STARTED at or after effectiveFrom follow the given
+ * schedule, while every older journey keeps whatever it resolved before. This is how a programme
+ * changes its gifts for new subscribers without touching what existing subscribers were promised.
+ */
+export async function assignProgramScheduleVersion(ctx: Ctx, input: { programId: string; scheduleId: string; effectiveFrom?: Date }): Promise<Result<{ versionId: string }>> {
+  const db = dbFor(ctx);
+  const program = await db.subscriptionProgram.findUnique({ where: { id: input.programId }, select: { id: true, name: true } });
+  if (!program) return { ok: false, error: "Programme not found." };
+  const schedule = await db.rewardSchedule.findUnique({ where: { id: input.scheduleId }, select: { id: true, name: true, status: true, repeats: true, milestones: { select: { cycleNumber: true, eligibilityScope: true } } } });
+  if (!schedule) return { ok: false, error: "Schedule not found." };
+  if (schedule.status === "ARCHIVED") return { ok: false, error: "An archived schedule cannot take new subscribers." };
+  if (schedule.repeats) {
+    const cycles = schedule.milestones.map((m) => m.cycleNumber).sort((a, b) => a - b);
+    for (let i = 0; i < cycles.length; i++) {
+      if (cycles[i] !== i + 1) return { ok: false, error: "A repeating journey needs a gift at every delivery from the 1st with no gaps, so every lap awards the same sequence." };
+    }
+    if (schedule.milestones.some((m) => m.eligibilityScope !== "PER_SUBSCRIPTION")) {
+      return { ok: false, error: "A repeating journey regifts by design, so every milestone must use the once per subscription scope." };
+    }
+  }
+  const effectiveFrom = input.effectiveFrom ?? new Date();
+  const v = await db.programScheduleVersion.create({
+    data: { organizationId: ctx.organizationId, programId: program.id, scheduleId: schedule.id, effectiveFrom, createdById: ctx.userId ?? null },
+    select: { id: true },
+  });
+  await logActivity(ctx, {
+    ...actor(ctx),
+    eventType: "PROGRAM_SCHEDULE_VERSIONED",
+    entityType: "PROGRAM",
+    entityId: program.id,
+    summary: `"${program.name}" journeys starting from ${effectiveFrom.toISOString().slice(0, 10)} follow "${schedule.name}"${schedule.repeats ? " (repeating)" : ""}; existing journeys keep what they were promised.`,
+    metadata: { versionId: v.id, scheduleId: schedule.id, effectiveFrom: effectiveFrom.toISOString() },
+  });
+  return { ok: true, data: { versionId: v.id } };
 }
