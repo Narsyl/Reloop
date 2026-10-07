@@ -123,7 +123,9 @@ export async function dryRunAction(ctx: Ctx, actionId: string, opts: { now?: Dat
   if (!a) throw new Error("Action not found in this organisation.");
   // effective milestone (schedule-based planning) — rules are legacy
   const programId = a.programId ?? a.journey.programId;
-  const rewardView = a.milestone ? await resolveProgramRewards(ctx, programId) : null;
+  // resolve against the journey's own schedule version: a grandfathered journey must be
+  // checked on the schedule it was promised, not whatever version is latest today
+  const rewardView = a.milestone ? await resolveProgramRewards(ctx, programId, { journeyStartedAt: a.journey.startedAt }) : null;
   const effective = rewardView?.milestones.find((m) => m.milestoneId === a.milestone?.id) ?? null;
 
   const customerName = [a.subscription.customer?.firstName, a.subscription.customer?.lastName].filter(Boolean).join(" ") || a.subscription.customer?.email || "Unknown customer";

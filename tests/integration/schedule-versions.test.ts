@@ -8,6 +8,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db/prisma";
+import { dryRunAction } from "@/lib/domain/actions/dry-run";
 import { planActionsForIntegration } from "@/lib/domain/actions/planner";
 import { assignProgramSchedule, assignProgramScheduleVersion, setRewardScheduleStatus, upsertMilestone, upsertRewardItem, upsertRewardSchedule } from "@/lib/domain/rewards/core";
 import { effectiveMilestoneForCycle, resolveProgramRewards } from "@/lib/domain/rewards/resolver";
@@ -93,6 +94,14 @@ describe("journey versions", () => {
     expect(after).toHaveLength(1);
     expect(after[0].id).toBe(before[0].id);
     expect(after[0].rewardItem?.name).toBe("Gift A");
+  });
+
+  it("the preflight check judges a grandfathered action on its own version, not the latest", async () => {
+    const before = await actionsFor("SV-OLD");
+    expect(before).toHaveLength(1);
+    const result = await dryRunAction(ctx, before[0].id, { now: NOW, persist: false });
+    expect(result.blockingReason).not.toBe("MILESTONE_NOT_ASSIGNED");
+    expect(result.milestone?.scheduleName).toBe("SV v1");
   });
 
   it("a journey started after the cutoff follows v2: no lap one checkout gift planned, delivery 2 gets its gift", async () => {
