@@ -7,7 +7,7 @@ import { getStore } from "./store";
 import { probeCapabilities } from "./capabilities";
 import { listCustomers } from "./customers";
 import { listProducts } from "./products";
-import { getSubscription, listSubscriptions, SUBSCRIPTION_STATUSES, type SubscriptionStatusFilter } from "./subscriptions";
+import { getSubscription, listSubscriptions, swapSubscriptionProduct, SUBSCRIPTION_STATUSES, type SubscriptionStatusFilter, type RechargeSubscriptionSwapBody } from "./subscriptions";
 import { getOrder, listOrders, type OrderStatusFilter } from "./orders";
 import { createOnetime, getOnetime, listOnetimes, type RechargeOnetimeCreateBody } from "./onetimes";
 import { createWebhookSubscription, deleteWebhookSubscription, listRegisteredWebhooks } from "./webhooks";
@@ -29,9 +29,11 @@ export function createRechargeConnector(client: RechargeClient) {
     getOrder: (id: string) => getOrder(client, id),
     listOnetimes: (opts?: ListOptions & { externalAddressId?: string; externalCustomerId?: string; startCursor?: string | null }) => listOnetimes(client, opts),
     getOnetime: (id: string) => getOnetime(client, id),
-    // Phase 6: the platform's ONLY business-data write (+ explicit controlled-test rollback delete)
+    // Phase 6: one-time gift write (+ explicit controlled-test rollback delete)
     createOnetime: (body: RechargeOnetimeCreateBody) => createOnetime(client, body),
     deleteOnetime: (id: string) => client.deleteOnetime(id),
+    // Phase 7: trial conversion — the only other business-data write (PUT strictly /subscriptions/{id})
+    swapSubscriptionProduct: (id: string, body: RechargeSubscriptionSwapBody) => swapSubscriptionProduct(client, id, body),
     // Phase 5: webhook SUBSCRIPTION management (POST/DELETE strictly on /webhooks paths)
     listWebhooks: () => listRegisteredWebhooks(client),
     createWebhook: (input: { address: string; topic: string }) => createWebhookSubscription(client, input),
@@ -46,4 +48,4 @@ export function createRechargeConnectorFromCredentials(credentials: RechargeCred
 }
 
 export { RechargeClient };
-export type { RechargeCredentials };
+export type { RechargeCredentials, RechargeSubscriptionSwapBody };

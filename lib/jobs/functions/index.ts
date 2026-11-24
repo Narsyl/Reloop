@@ -5,6 +5,7 @@ import { recalculateJourneys } from "./recalc";
 import { scheduledIncrementalSync } from "./incremental";
 import { planAutomationActions, dryRunDueActions } from "./plan";
 import { processWebhookEvent, redispatchWebhookEvents } from "./webhooks";
+import { trialConversionSweep } from "./trial-conversion";
 
 /**
  * Function registry served by /api/inngest.
@@ -25,4 +26,4 @@ export const heartbeat = inngest.createFunction(
   },
 );
 
-export const functions = [heartbeat, runIntegrationSync, recalculateJourneys, scheduledIncrementalSync, planAutomationActions, dryRunDueActions, processWebhookEvent, redispatchWebhookEvents];
+export const functions = [heartbeat, runIntegrationSync, recalculateJourneys, scheduledIncrementalSync, planAutomationActions, dryRunDueActions, processWebhookEvent, redispatchWebhookEvents, trialConversionSweep];

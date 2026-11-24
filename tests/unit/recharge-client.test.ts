@@ -157,3 +157,30 @@ describe("RechargeClient", () => {
     expect(JSON.stringify(err.toJSON())).not.toContain("tok_test");
   });
 });
+
+describe("updateSubscription (Phase 7 trial-conversion write)", () => {
+  it("refuses a non-numeric subscription id before any HTTP happens", async () => {
+    const { fetchImpl, calls } = mockFetch([{ status: 200, body: {} }]);
+    const client = new RechargeClient({ ...creds, fetchImpl });
+    await expect(client.updateSubscription("../onetimes", {})).rejects.toMatchObject({ kind: "VALIDATION_ERROR" });
+    await expect(client.updateSubscription("abc123", {})).rejects.toMatchObject({ kind: "VALIDATION_ERROR" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("PUTs strictly /subscriptions/{id} with the body, exactly once", async () => {
+    const { fetchImpl, calls } = mockFetch([{ status: 200, body: { subscription: { id: "123" } } }]);
+    const client = new RechargeClient({ ...creds, fetchImpl });
+    await client.updateSubscription("123", { price: "28.00" });
+    expect(calls).toHaveLength(1);
+    expect(new URL(calls[0].url).pathname).toBe("/subscriptions/123");
+    expect(calls[0].init.method).toBe("PUT");
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ price: "28.00" });
+  });
+
+  it("never retries the write — a 5xx or network failure surfaces after ONE attempt", async () => {
+    const { fetchImpl, calls } = mockFetch([{ status: 500, body: { error: "boom" } }]);
+    const client = new RechargeClient({ ...creds, fetchImpl, maxRetries: 3 });
+    await expect(client.updateSubscription("123", {})).rejects.toMatchObject({ kind: "REMOTE_SERVER_ERROR" });
+    expect(calls).toHaveLength(1);
+  });
+});

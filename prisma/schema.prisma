@@ -113,6 +113,8 @@ model Organization {
   rewardMilestones   RewardScheduleMilestone[]
   milestoneMarkers   ProgramMilestoneMarker[]
   scheduleVersions   ProgramScheduleVersion[]
+  trialFunnels       TrialConversionFunnel[]
+  trialCandidates    TrialConversionCandidate[]
 }
 
 enum OrganizationRole {
@@ -197,6 +199,7 @@ model Integration {
   fulfillmentMarkers FulfillmentMarker[]
   plannerRuns        PlannerRun[]
   controlledTests    ControlledTestAuthorization[]
+  trialFunnels       TrialConversionFunnel[]
 
   @@unique([organizationId, provider, externalStoreId])
   @@index([organizationId])
@@ -448,6 +451,7 @@ model Subscription {
   orders        SubscriptionOrder[]
   actions       AutomationAction[]
   exceptions    Exception[]
+  trialCandidacies TrialConversionCandidate[]
 
   @@unique([integrationId, externalSubscriptionId])
   @@index([organizationId, status])
@@ -1144,4 +1148,92 @@ model SubscriptionOrder {
   @@unique([integrationId, externalOrderId, externalSubscriptionId])
   @@index([subscriptionId, processedAt])
   @@index([integrationId, externalSubscriptionId, processedAt])
+}
+
+// ═══════════════════════════ Trial conversion (Phase 7) ═══════════════════════════
+
+// Rollout control mirrors AutomationMode: OFF = watch nothing; DRY_RUN = enrol, run every
+// checkpoint and report "would convert" without writing; LIVE = perform the swap.
+enum TrialConversionMode {
+  OFF
+  DRY_RUN
+  LIVE
+}
+
+enum TrialCandidateStatus {
+  WATCHING // enrolled; cancellation checkpoints in progress
+  CONVERTING // claimed by the executor; a provider write may be in flight
+  CONVERTED // swap verified by authoritative read-back
+  WOULD_CONVERT // DRY_RUN outcome: every check passed, the write was withheld
+  CANCELLED // a cancellation was observed at any check — this subscription is NEVER converted
+  ALREADY_CONVERTED // the product changed without us (e.g. a manual batch swap)
+  ENDED // the provider subscription disappeared or expired before conversion
+  FAILED // the write failed definitively; an exception carries the detail
+  UNCERTAIN // write outcome unknown after read reconciliation; held for a human, never auto-retried
+}
+
+// One trial product whose active subscriptions are converted to a paid product after a
+// fixed number of days, subject to the cancellation checkpoints. Config, not code.
+model TrialConversionFunnel {
+  id             String              @id @default(cuid())
+  organizationId String
+  integrationId  String
+  name           String
+  mode           TrialConversionMode @default(OFF)
+
+  sourceExternalProductId String // the trial product (e.g. sachets) being watched
+  targetExternalProductId String
+  targetExternalVariantId String
+  targetProductTitle      String?
+  targetPrice             Decimal? @db.Decimal(10, 2) // must be set before LIVE
+  targetIntervalUnit      String? // null = leave the provider's interval untouched
+  targetIntervalFrequency Int?
+  targetChargeIntervalFrequency Int?
+
+  convertAfterDays Int       @default(7)
+  checkpointDays   Int[]     @default([2, 5, 6, 7]) // cancellation checks at these day marks after trial start
+  enrollFrom       DateTime? // only trials created at/after this moment are watched (null = all active)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration  Integration                @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  candidates   TrialConversionCandidate[]
+
+  @@unique([integrationId, sourceExternalProductId])
+  @@index([organizationId])
+}
+
+// One watched trial subscription. Checkpoint observations are appended, never rewritten;
+// a cancellation observed at ANY point is terminal — the subscription is never converted.
+model TrialConversionCandidate {
+  id                     String               @id @default(cuid())
+  organizationId         String
+  funnelId               String
+  subscriptionId         String
+  externalSubscriptionId String
+  status                 TrialCandidateStatus @default(WATCHING)
+  trialStartedAt         DateTime // provider created_at of the trial subscription
+  dueAt                  DateTime // trialStartedAt + convertAfterDays
+  checkpointsJson        Json? // [{ day, observedAt, providerStatus, outcome, late? }]
+  lastCheckedAt          DateTime?
+  lastProviderStatus     String?
+  detail                 String? // human-readable latest decision / why terminal
+  dryRun                 Boolean   @default(true)
+  convertedAt            DateTime?
+  verifiedAt             DateTime?
+  attemptCount           Int       @default(0)
+  lastError              String?
+  lastErrorAt            DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  funnel       TrialConversionFunnel @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+  subscription Subscription          @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@unique([funnelId, subscriptionId])
+  @@index([organizationId, status])
+  @@index([funnelId, status, dueAt])
 }

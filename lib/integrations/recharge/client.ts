@@ -124,6 +124,20 @@ export class RechargeClient {
   }
 
   /**
+   * Phase 7 — the SECOND business-data write: PUT strictly `/subscriptions/{id}` (trial
+   * conversion product swap). The path is hard-coded around a validated numeric id, the body is
+   * typed by the caller, and maxRetries is forced to 0: a write is NEVER retried blindly — an
+   * ambiguous outcome is resolved by read reconciliation (the subscription either carries the
+   * target product or it does not), not by re-PUTting.
+   */
+  async updateSubscription<T = unknown>(externalSubscriptionId: string, body: Record<string, unknown>, opts: Omit<RequestOptions<T>, "method" | "body" | "maxRetries"> = {}): Promise<T> {
+    if (!/^\d+$/.test(externalSubscriptionId)) {
+      throw new RechargeError("VALIDATION_ERROR", `Refused: updateSubscription requires a numeric subscription id (got "${externalSubscriptionId}")`, { method: "PUT", path: "/subscriptions/{id}", correlationId: this.correlationId });
+    }
+    return this.request<T>(`/subscriptions/${externalSubscriptionId}`, { ...opts, method: "PUT", body, maxRetries: 0 });
+  }
+
+  /**
    * Phase 6 rollback companion — DELETE strictly `/onetimes/{id}`. Exists only so a controlled-test
    * one-time can be removed by explicit operator action; no other resource is deletable.
    */
@@ -136,8 +150,9 @@ export class RechargeClient {
 
   /**
    * Generic request — PRIVATE. The public surface of this client is: `get`/`paginate` (GET),
-   * `webhookAdmin` (POST/DELETE strictly on /webhooks), `createOnetime` (POST strictly /onetimes)
-   * and `deleteOnetime` (DELETE strictly /onetimes/{id}). No other mutation is reachable.
+   * `webhookAdmin` (POST/DELETE strictly on /webhooks), `createOnetime` (POST strictly /onetimes),
+   * `deleteOnetime` (DELETE strictly /onetimes/{id}) and `updateSubscription` (PUT strictly
+   * /subscriptions/{numeric id}). No other mutation is reachable.
    */
   private async request<T = unknown>(path: string, opts: RequestOptions<T> = {}): Promise<T> {
     const method = opts.method ?? "GET";

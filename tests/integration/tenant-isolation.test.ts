@@ -227,6 +227,16 @@ async function seedOrg(org: { id: string; slug: string; name: string }, userId: 
   });
   ids.SubscriptionOrder = so.id;
 
+  const trialFunnel = await prisma.trialConversionFunnel.create({
+    data: { organizationId: org.id, integrationId: integ.id, name: "Trial funnel", sourceExternalProductId: "p-trial", targetExternalProductId: "p1", targetExternalVariantId: "v1", targetPrice: "28.00" },
+  });
+  ids.TrialConversionFunnel = trialFunnel.id;
+
+  const trialCandidate = await prisma.trialConversionCandidate.create({
+    data: { organizationId: org.id, funnelId: trialFunnel.id, subscriptionId: sub.id, externalSubscriptionId: "s1", trialStartedAt: new Date(), dueAt: new Date(Date.now() + 7 * 86400000) },
+  });
+  ids.TrialConversionCandidate = trialCandidate.id;
+
   return ids as Record<TenantModelName, string>;
 }
 

@@ -29,3 +29,23 @@ export async function getSubscription(client: RechargeClient, externalSubscripti
   const data = await client.get(`/subscriptions/${encodeURIComponent(externalSubscriptionId)}`, { schema: subscriptionEnvelope });
   return mapSubscription(data.subscription);
 }
+
+/**
+ * Phase 7 — the typed body for the ONE subscription write (trial conversion product swap).
+ * Recharge 2021-11: PUT /subscriptions/{id} with commerce ids swaps the product the
+ * subscription delivers; price/interval are only sent when the funnel sets them.
+ */
+export type RechargeSubscriptionSwapBody = {
+  external_product_id: { ecommerce: string };
+  external_variant_id: { ecommerce: string };
+  product_title?: string;
+  price?: string;
+  order_interval_unit?: string;
+  order_interval_frequency?: number;
+  charge_interval_frequency?: number;
+};
+
+export async function swapSubscriptionProduct(client: RechargeClient, externalSubscriptionId: string, body: RechargeSubscriptionSwapBody): Promise<ConnectorSubscription> {
+  const data = await client.updateSubscription(externalSubscriptionId, body, { schema: subscriptionEnvelope });
+  return mapSubscription(data.subscription);
+}
